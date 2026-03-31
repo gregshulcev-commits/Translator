@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH="@CMAKE_SOURCE_DIR@/src"
-exec "@Python3_EXECUTABLE@" -m pdf_word_translator.app "$@"
+
+PROJECT_ROOT="@CMAKE_SOURCE_DIR@"
+cd "$PROJECT_ROOT"
+
+PYTHON_BIN="@APP_PYTHON@"
+export PYTHONPATH="$PROJECT_ROOT/src"
+exec "$PYTHON_BIN" -m pdf_word_translator.app "$@"

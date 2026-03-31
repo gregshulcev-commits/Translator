@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import tkinter as tk
 
@@ -20,8 +21,10 @@ from pdf_word_translator.utils.logging_utils import setup_logging
 
 def make_sample_pdf(path: Path) -> None:
     doc = fitz.open()
-    page = doc.new_page()
+    page = doc.new_page(height=1600)
     page.insert_text((72, 72), "Driver configuration window.", fontsize=14)
+    for index in range(1, 70):
+        page.insert_text((72, 72 + index * 20), f"Additional line {index} for scrolling test.", fontsize=12)
     doc.save(path)
     doc.close()
 
@@ -54,6 +57,13 @@ def main() -> int:
         root.update_idletasks()
         assert result is not None
         assert window.best_translation_var.get() == "конфигурация"
+        assert window.example_var.get().startswith("Пример: ")
+
+        before = window.canvas.canvasy(0)
+        window._on_mousewheel(SimpleNamespace(num=5, delta=0))
+        root.update_idletasks()
+        after = window.canvas.canvasy(0)
+        assert after >= before
         root.destroy()
     return 0
 

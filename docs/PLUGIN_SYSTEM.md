@@ -1,28 +1,67 @@
-# Plugin system
+# Система плагинов
 
-## Что реализовано сейчас
+## Что считается плагином в MVP
 
-В MVP есть два типа плагинов:
+В текущем MVP плагинами считаются два типа расширений:
 
-- document plugins;
-- dictionary plugins.
+- **DocumentPlugin** — открывает документ определённого формата;
+- **DictionaryPlugin** — выполняет lookup слова.
 
-## Builtin plugins
+Интерфейсы описаны в `src/pdf_word_translator/plugin_api.py`.
+
+## DocumentPlugin
+
+Минимальный контракт:
+
+- `plugin_id()`
+- `supported_extensions()`
+- `can_open(path)`
+- `open(path)` -> `DocumentSession`
+
+Реализованная версия:
+
+- `PyMuPdfDocumentPlugin`
+
+## DictionaryPlugin
+
+Минимальный контракт:
+
+- `plugin_id()`
+- `lookup(word)` -> `LookupResult`
+- `available_entries()`
+
+Реализованные версии:
+
+- `SQLiteDictionaryPlugin`
+- `CompositeDictionaryPlugin`
+
+## Built-in plugins
+
+Загружаются всегда:
 
 - `document.pdf.pymupdf`
-- `dictionary.sqlite`
+- composite dictionary plugin, который объединяет встроенный глоссарий и все найденные SQLite-паки
 
-## Внешние плагины
+## External plugins
 
-Если положить Python-файл в runtime plugin directory, loader попытается его импортировать.
+Папка для внешних Python-плагинов:
 
-Плагин должен предоставить функцию:
+```text
+~/.local/share/pdf_word_translator_mvp/plugins/
+```
+
+Каждый внешний `*.py` файл может определить функцию:
 
 ```python
 def register_plugins():
-    return [plugin_instance_1, plugin_instance_2]
+    return [my_plugin_instance]
 ```
 
-## Ограничение текущего варианта
+## Почему словарные паки реализованы как SQLite, а не как Python-плагины
 
-Это не ABI-совместимая система модулей, а легкий Python-level plugin mechanism для быстрого расширения MVP.
+Словарь — это в первую очередь **данные**, а не код. Поэтому для словарей в MVP выбран гибридный подход:
+
+- логика lookup — в Python-плагине;
+- словарные базы — в `*.sqlite` паках.
+
+Так проще добавлять новые словари без модификации кода приложения.

@@ -1,16 +1,18 @@
-# plugins/dictionary_sqlite.py
+# `dictionary_sqlite.py`
 
 ## Назначение
 
-SQLite-реализация словаря.
+Реализация `DictionaryPlugin`, работающая по внутренней SQLite-схеме.
 
-## Как работает lookup
+## Lookup-логика
 
-1. строит candidate forms;
-2. ищет совпадение среди `forms`;
-3. при необходимости ищет по `entries.normalized_headword`;
-4. возвращает `LookupResult`.
+1. получает кандидатные формы из `EnglishWordNormalizer`;
+2. ищет по `forms.normalized_form`;
+3. fallback по `entries.normalized_headword`;
+4. гидратирует `DictionaryEntry` из таблиц `entries/senses/examples/transcriptions`.
 
-## Ограничение
+## Почему SQLite
 
-Качество зависит от наполнения SQLite базы.
+- прозрачно;
+- легко переносить и копировать как словарный пак;
+- хорошо подходит для офлайн lookup.

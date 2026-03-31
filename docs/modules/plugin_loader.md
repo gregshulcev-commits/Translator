@@ -1,15 +1,26 @@
-# plugin_loader.py
+# `plugin_loader.py`
 
 ## Назначение
 
-Загружает builtin plugins и внешние Python-плагины из runtime directory.
+Собирает набор доступных плагинов на старте приложения.
 
-## Что делает
+## Что загружается
 
-- регистрирует встроенный PDF provider;
-- регистрирует встроенный SQLite dictionary provider;
-- при наличии загружает внешние `.py` плагины через `register_plugins()`.
+### Документы
 
-## Расширение
+- `PyMuPdfDocumentPlugin`
 
-Внешний плагин должен вернуть список инстансов, реализующих интерфейсы из `plugin_api.py`.
+### Словари
+
+- встроенный технический словарь из `data/starter_dictionary.sqlite`;
+- все `*.sqlite` паки из `runtime_dictionary_dir`;
+- итоговый composite plugin, который ищет по ним последовательно.
+
+## Приоритет словарей
+
+1. встроенный technical glossary;
+2. пользовательские SQLite-паки.
+
+## Внешние плагины
+
+Поддерживаются Python-файлы из каталога `~/.local/share/pdf_word_translator_mvp/plugins/`, если они экспортируют `register_plugins()`.

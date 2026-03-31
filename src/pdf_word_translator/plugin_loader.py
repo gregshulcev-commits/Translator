@@ -15,6 +15,7 @@ import logging
 
 from .config import AppConfig
 from .plugin_api import DictionaryPlugin, DocumentPlugin
+from .plugins.dictionary_composite import CompositeDictionaryPlugin
 from .plugins.dictionary_sqlite import SQLiteDictionaryPlugin
 from .plugins.document_pdf_pymupdf import PyMuPdfDocumentPlugin
 
@@ -55,15 +56,34 @@ class PluginLoader:
     def load(self) -> PluginRegistry:
         registry = PluginRegistry(
             document_plugins=[PyMuPdfDocumentPlugin()],
-            dictionary_plugins=[SQLiteDictionaryPlugin(self._config.starter_dictionary_db)],
+            dictionary_plugins=self._load_builtin_dictionary_plugins(),
         )
         self._load_external_plugins(registry)
+        registry.dictionary_plugins = [CompositeDictionaryPlugin(registry.dictionary_plugins)]
         LOGGER.info(
             "Loaded %s document plugin(s) and %s dictionary plugin(s)",
             len(registry.document_plugins),
             len(registry.dictionary_plugins),
         )
         return registry
+
+    def _load_builtin_dictionary_plugins(self) -> list[DictionaryPlugin]:
+        plugins: list[DictionaryPlugin] = []
+
+        # The small bundled technical glossary always has the highest priority.
+        if self._config.starter_dictionary_db.exists():
+            plugins.append(SQLiteDictionaryPlugin(self._config.starter_dictionary_db))
+
+        # User-installed dictionary packs are loaded afterwards.
+        for db_path in sorted(self._config.runtime_dictionary_dir.glob("*.sqlite")):
+            try:
+                plugins.append(SQLiteDictionaryPlugin(db_path))
+            except Exception as exc:  # pragma: no cover - protective logging only
+                LOGGER.exception("Failed to load dictionary pack %s: %s", db_path, exc)
+
+        if not plugins:
+            raise RuntimeError("Не найдено ни одного словарного пакета SQLite")
+        return plugins
 
     def _load_external_plugins(self, registry: PluginRegistry) -> None:
         plugin_dir = self._config.external_plugin_dir

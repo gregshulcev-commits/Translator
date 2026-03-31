@@ -1,1 +1,4 @@
+[100%] Run automated tests
 ...........                                                              [100%]
+11 passed in 0.54s
+[100%] Built target test

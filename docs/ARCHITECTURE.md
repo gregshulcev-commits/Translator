@@ -1,161 +1,169 @@
-# Архитектура MVP
+# Архитектура MVP v2
 
-## 1. Цель архитектуры
+## Назначение
 
-Сделать не просто одноразовый скрипт, а основание для дальнейшей разработки:
+MVP реализует чтение PDF с текстовым слоем и офлайн-перевод слова по клику. Архитектура остаётся модульной, чтобы позже можно было добавить:
 
-- PDF-viewer с переводом по клику;
-- минимальные зависимости между слоями;
-- возможность заменить словарь без переписывания UI;
-- возможность позже добавить OCR и новые форматы.
+- новые форматы документов;
+- OCR;
+- дополнительные словарные паки;
+- другой GUI-стек;
+- нейронный переводчик как отдельный слой.
 
-## 2. Слои
+## Слои системы
 
-### UI layer
+### 1. UI Layer
 
-`ui/main_window.py`
+Файлы:
 
-Отвечает только за:
+- `src/pdf_word_translator/ui/main_window.py`
 
-- главное окно;
-- toolbar;
-- canvas просмотра страницы;
-- правую панель перевода;
-- статусы;
-- навигацию по страницам и поиску.
+Ответственность:
 
-### Workflow / Application layer
+- окно приложения;
+- toolbar и statusbar;
+- canvas для рендера страницы;
+- нижняя панель краткой словарной подсказки;
+- взаимодействие мышью и поиск.
 
-`services/translation_workflow.py`
-`services/document_service.py`
-`services/dictionary_service.py`
+UI не открывает PDF напрямую и не знает устройство словарной БД.
 
-Отвечает за orchestration:
+### 2. Application Layer
 
-- открыть документ;
-- получить слово по координате;
-- получить контекст;
-- сделать lookup;
-- вернуть готовую модель данных для UI.
+Файлы:
 
-### Domain layer
+- `src/pdf_word_translator/app.py`
+- `src/pdf_word_translator/plugin_loader.py`
+- `src/pdf_word_translator/services/document_service.py`
+- `src/pdf_word_translator/services/dictionary_service.py`
+- `src/pdf_word_translator/services/translation_workflow.py`
 
-`models.py`
+Ответственность:
 
-Содержит независимые от GUI и библиотеки доменные сущности:
+- запуск приложения;
+- инициализация каталогов runtime;
+- построение встроенного словаря при необходимости;
+- загрузка плагинов;
+- orchestration между UI, документом и словарём.
 
-- `WordToken`
-- `SearchHit`
-- `DocumentSentence`
-- `DictionaryEntry`
-- `LookupResult`
+### 3. Domain Layer
 
-### Infrastructure / Plugin layer
+Файлы:
 
-`plugins/document_pdf_pymupdf.py`
-`plugins/dictionary_sqlite.py`
-`plugin_api.py`
-`plugin_loader.py`
+- `src/pdf_word_translator/models.py`
+- `src/pdf_word_translator/plugin_api.py`
 
-Отвечает за конкретные реализации:
+Ответственность:
 
-- чтение PDF;
-- получение координат слов;
-- поиск по текстовому слою;
-- словарный lookup через SQLite.
+- стабильные dataclass-модели (`WordToken`, `SearchHit`, `DictionaryEntry`, `LookupResult`);
+- интерфейсы плагинов документа и словаря.
 
-### Utility layer
+### 4. Infrastructure Layer
 
-`utils/text_normalizer.py`
-`utils/dictionary_builder.py`
-`utils/logging_utils.py`
+Файлы:
 
-Отвечает за:
+- `src/pdf_word_translator/plugins/document_pdf_pymupdf.py`
+- `src/pdf_word_translator/plugins/dictionary_sqlite.py`
+- `src/pdf_word_translator/plugins/dictionary_composite.py`
+- `src/pdf_word_translator/utils/dictionary_builder.py`
+- `src/pdf_word_translator/utils/freedict_importer.py`
+- `src/pdf_word_translator/utils/text_normalizer.py`
+- `src/pdf_word_translator/utils/logging_utils.py`
 
-- нормализацию английских слов;
-- сборку словаря из CSV;
+Ответственность:
+
+- доступ к PDF через PyMuPDF;
+- lookup по SQLite;
+- объединение нескольких словарных паков;
+- сборка и импорт словарей;
+- нормализация английских словоформ;
 - логирование.
 
-## 3. Поток клика по слову
+### 5. Tooling Layer
+
+Файлы:
+
+- `tools/build_dictionary.py`
+- `tools/import_dictionary.py`
+- `tools/install_default_dictionaries.py`
+- `scripts/install_desktop.sh`
+
+Ответственность:
+
+- сборка встроенного словаря;
+- импорт внешних словарей;
+- автоматическая установка зависимостей и словарей.
+
+## Диаграмма зависимостей
 
 ```text
-Canvas click
-  -> MainWindow.on_canvas_click()
-  -> TranslationWorkflow.translate_point()
-  -> DocumentSession.find_token_at()
-  -> DocumentSession.get_sentence_for_token()
-  -> DictionaryService.lookup()
-  -> SQLiteDictionaryPlugin.lookup()
-  -> TranslationViewModel
-  -> MainWindow._populate_panel()
+MainWindow
+  -> TranslationWorkflow
+      -> DocumentService
+          -> DocumentPlugin / DocumentSession
+      -> DictionaryService
+          -> DictionaryPlugin
+              -> CompositeDictionaryPlugin
+                  -> SQLiteDictionaryPlugin[*]
+
+app.py
+  -> AppConfig
+  -> ensure_dictionary_database()
+  -> PluginLoader
+  -> MainWindow
 ```
 
-## 4. Поток поиска по документу
+## Поток клика по слову
 
-```text
-Search query
-  -> MainWindow.execute_search()
-  -> DocumentSession.search(query)
-  -> SearchHit[]
-  -> MainWindow.navigate_search()
-  -> highlight result + page jump
-```
+1. Пользователь кликает на canvas.
+2. `MainWindow` переводит координаты экрана в координаты страницы.
+3. `TranslationWorkflow.translate_point()` вызывает `DocumentSession.find_token_at()`.
+4. `DocumentSession` возвращает `WordToken`.
+5. `TranslationWorkflow` получает контекст из `get_sentence_for_token()`.
+6. `DictionaryService.lookup()` ищет слово во всех подключённых словарных паках.
+7. `MainWindow` обновляет нижнюю карточку перевода.
 
-## 5. Почему архитектура модульная, хотя MVP маленький
+## Поток установки словаря
 
-Потому что это снижает будущую стоимость изменений:
+1. `scripts/install_desktop.sh` создаёт `.venv` и ставит зависимости.
+2. `tools/install_default_dictionaries.py`:
+   - гарантирует наличие встроенного словаря;
+   - пытается скачать FreeDict EN-RU TEI;
+   - конвертирует его в SQLite.
+3. На следующем запуске `PluginLoader` автоматически подхватывает новый `*.sqlite` файл из runtime-каталога словарей.
 
-- PDF-плагин можно заменить на другой renderer;
-- SQLite-слой можно заменить на import из внешних словарей;
-- UI можно переписать позже на Qt, сохранив services и plugins;
-- OCR можно добавить отдельным plugin-ом документа.
+## Выбор словаря при lookup
 
-## 6. Реализованные точки расширения
+Порядок приоритета:
 
-### Document plugins
+1. встроенный технический глоссарий;
+2. пользовательские SQLite-паки из `~/.local/share/pdf_word_translator_mvp/dictionaries/`.
 
-Интерфейс: `DocumentPlugin`, `DocumentSession`
+Это позволяет техническим переводам переопределять более общие словарные значения.
 
-Сейчас реализован:
+## Runtime-каталоги
 
-- `PyMuPdfDocumentPlugin`
+По XDG:
 
-Потом можно добавить:
+- данные: `~/.local/share/pdf_word_translator_mvp/`
+- словари: `~/.local/share/pdf_word_translator_mvp/dictionaries/`
+- кэш: `~/.cache/pdf_word_translator_mvp/`
+- логи: `~/.cache/pdf_word_translator_mvp/logs/`
+- временные загрузки словарей: `~/.cache/pdf_word_translator_mvp/downloads/`
 
-- `DocxDocumentPlugin`
-- `EpubDocumentPlugin`
-- `OcrPdfDocumentPlugin`
+## Границы текущего MVP
 
-### Dictionary plugins
+- только text-based PDF;
+- только словарный EN -> RU перевод;
+- без OCR;
+- без Android-сборки;
+- без runtime-менеджера словарей в GUI.
 
-Интерфейс: `DictionaryPlugin`
+## Эволюция в будущем
 
-Сейчас реализован:
+Архитектура уже допускает:
 
-- `SQLiteDictionaryPlugin`
-
-Потом можно добавить:
-
-- `StarDictDictionaryPlugin`
-- `CsvDictionaryPlugin`
-- `HybridDictionaryPlugin`
-- `NeuralTranslationPlugin`
-
-## 7. Почему страницы рендерятся page-by-page
-
-Это самый простой и устойчивый вариант для MVP:
-
-- не держит весь документ как гигантскую картинку;
-- работает на больших PDF;
-- легко кешируется;
-- легко масштабируется для соседних страниц.
-
-## 8. Почему словарь SQLite
-
-SQLite удобен для MVP потому что:
-
-- локальный и офлайн;
-- не требует сервера;
-- легко импортировать из CSV;
-- быстро ищет словоформы по индексу;
-- легко заменить на более полный словарь в будущем.
+- `DocumentPlugin` для DOCX/EPUB;
+- `DictionaryPlugin` для новых backend-ов;
+- отдельный `TranslationPlugin` для фраз/предложений;
+- OCR-плагин, который будет превращать изображение страницы в текстовую модель.

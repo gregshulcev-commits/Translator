@@ -1,79 +1,46 @@
-# Test report for the delivered MVP
+# Отчёт о тестировании
 
-## Environment used
+## Автоматические проверки
 
-- Python 3.13
-- Tk 8.6
-- PyMuPDF
-- Pillow
-- pronouncing
-- pytest
-- Xvfb for headless GUI smoke test
+### 1. Pytest
 
-## Automated test results
+Результат:
 
-### 1. Unit + integration tests
+- 11/11 тестов проходят.
 
-Command:
-
-```bash
-PYTHONPATH=src pytest
-```
-
-Result:
-
-```text
-9 passed
-```
+См. `docs/test_artifacts/pytest_output.txt`.
 
 ### 2. GUI smoke test
 
-Command:
+Проверено:
 
-```bash
-xvfb-run -a env PYTHONPATH=src python3 tests/smoke_gui.py
-```
+- окно создаётся;
+- документ открывается;
+- слово `configuration` переводится корректно;
+- нижняя панель обновляется.
 
-Result:
+См. `docs/test_artifacts/smoke_output.txt`.
 
-- passed;
-- main window created;
-- sample PDF opened;
-- click-to-translate workflow updated the right panel correctly.
+### 3. Реальные PDF пользователя
 
-## Real PDF verification performed in this environment
+Проверено в `tests/test_real_pdfs.py`:
 
-A direct workflow check was executed on:
+- загруженные PDF имеют текстовый слой;
+- PyMuPDF может получить по ним word tokens;
+- на реальном PDF находится слово `driver`.
 
-- `IRIO_EPICS_Device_Driver_User's_Manual__RAJ9P8_v1_7.pdf`
+### 4. Установщик словарей
 
-Verified scenario:
+В sandbox внешняя сеть для скрипта загрузки словаря была недоступна, поэтому проверен fallback-сценарий:
 
-- the real uploaded PDF opens successfully;
-- the token `driver` is found in the document;
-- lookup returns `драйвер`;
-- context sentence is extracted from the document.
+- встроенный технический словарь собирается корректно;
+- приложение продолжает работать даже без скачанного общего словаря.
 
-## Bug fixed during testing
+См. `docs/test_artifacts/install_default_output.txt`.
 
-### Bug
+### 5. CMake targets
 
-`tk.Canvas` does not have a `.see()` method.
+Проверено:
 
-### Symptom
-
-GUI smoke test crashed while trying to keep the selected rectangle visible.
-
-### Fix
-
-A dedicated helper `_scroll_rect_into_view()` was added to `ui/main_window.py`, and both word-highlight and search-highlight now scroll the canvas using `xview_moveto()` / `yview_moveto()`.
-
-## Remaining warnings
-
-The package `pronouncing` emits a deprecation warning about `pkg_resources`. This does **not** break the MVP, but it is worth cleaning up in a later iteration by pinning or replacing the transcription helper.
-
-
-## Raw outputs stored in repository
-
-- `docs/test_artifacts/pytest_output.txt`
-- `docs/test_artifacts/smoke_output.txt`
+- `cmake --build build --target test` — выполняется успешно;
+- `cmake --build build --target install_dictionaries` — выполняется успешно, а при отсутствии сети корректно остаётся на встроенном словаре.

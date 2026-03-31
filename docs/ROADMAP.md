@@ -1,33 +1,35 @@
 # Roadmap
 
-## MVP (реализовано)
+## Сделано в MVP v2
 
-- PDF viewer page-by-page
-- click-to-translate
-- right-side translation panel
-- search
-- starter dictionary
-- tests
-- documentation
+- просмотр PDF;
+- клик по слову и выделение;
+- нижняя компактная карточка перевода;
+- поиск по документу;
+- прокрутка колесом мыши;
+- встроенный технический словарь;
+- поддержка нескольких словарных паков;
+- импорт FreeDict TEI -> SQLite;
+- автотесты и GUI smoke test.
 
 ## v1.1
 
-- история слов
-- экспорт слов
-- RU <-> EN
-- улучшенный словарь
-- Android-friendly UI layer
+- системное выделение текста поверх PDF, если выбран другой viewer backend;
+- история слов;
+- менеджер словарей в GUI;
+- установка словарей кнопкой из интерфейса;
+- Android-адаптация текущей архитектуры или миграция на Qt/QML.
 
 ## v1.2
 
-- OCR page plugin
-- OCR correction UI
-- DOCX/EPUB adapters
-- copy selected word / copy context actions
+- OCR-plugin;
+- постраничное распознавание;
+- редактирование OCR-результата пользователем;
+- перевод слов в распознанном слое.
 
 ## v2
 
-- нейронный перевод предложения как отдельный plugin
-- пользовательские словари
-- аннотации
-- работа с текстом внутри изображений
+- новый GUI backend (Qt/QML или C++ rewrite);
+- DOCX/EPUB;
+- RU -> EN;
+- фразовый и нейронный перевод как отдельный plugin layer.

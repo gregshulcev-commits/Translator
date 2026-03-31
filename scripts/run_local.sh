@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH="$(cd "$(dirname "$0")/.." && pwd)/src"
-exec python3 -m pdf_word_translator.app "$@"
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+if [ -d .venv ]; then
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+fi
+
+export PYTHONPATH="$PROJECT_ROOT/src"
+exec python -m pdf_word_translator.app "$@"

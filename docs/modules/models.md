@@ -1,17 +1,43 @@
-# models.py
+# `models.py`
 
 ## Назначение
 
-Доменные структуры данных, независимые от UI и PyMuPDF.
+Набор стабильных dataclass-моделей, которыми обмениваются UI, сервисы и плагины.
 
-## Ключевые модели
+## Основные модели
 
-- `WordToken` — слово и его координаты;
-- `SearchHit` — совпадение поиска;
-- `DocumentSentence` — контекст;
-- `DictionaryEntry` — словарная карточка;
-- `LookupResult` — результат поиска в словаре.
+### `WordToken`
 
-## Причина существования
+Слово на странице PDF:
 
-Модели делают границы между слоями явными и упрощают тесты.
+- `token_id`
+- `text`
+- `normalized_text`
+- `page_index`
+- `rect`
+- `block_no`
+- `line_no`
+- `word_no`
+
+### `SearchHit`
+
+Результат поиска по документу.
+
+### `DocumentSentence`
+
+Контекстная строка или предложение вокруг выбранного слова.
+
+### `DictionaryEntry`
+
+Запись словаря:
+
+- headword
+- transcription
+- best_translation
+- alternative_translations
+- examples
+- notes
+
+### `LookupResult`
+
+Ответ словаря с информацией о стратегии поиска и списке проверенных форм.

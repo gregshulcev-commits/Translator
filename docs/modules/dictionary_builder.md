@@ -1,17 +1,28 @@
-# utils/dictionary_builder.py
+# `dictionary_builder.py`
 
 ## Назначение
 
-Собирает стартовый SQLite словарь из CSV.
+Унифицированная сборка SQLite-словари из нормализованных записей.
 
-## Что создает
+## Что умеет
 
-- `entries`
+- гарантировать наличие встроенного словаря;
+- читать CSV-глоссарий;
+- строить SQLite из `DictionaryBuildEntry`;
+- записывать внутреннюю схему БД.
+
+## Основная dataclass-модель
+
+`DictionaryBuildEntry`:
+
+- `headword`
+- `best_translation`
+- `alternatives`
 - `forms`
-- `transcriptions`
-- `senses`
 - `examples`
+- `notes`
+- `transcription`
 
-## Дополнительно
+## Изменение в v2
 
-Если для слова нет явной транскрипции, модуль пытается получить её через `pronouncing`.
+Удалена зависимость от `pronouncing`. Автоматическая генерация транскрипций больше не выполняется; транскрипция берётся из источника словаря.

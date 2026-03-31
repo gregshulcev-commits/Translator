@@ -1,36 +1,100 @@
 # Формат словаря
 
-## Источник данных
+## Базовый принцип
 
-Стартовый словарь хранится в CSV:
+В рантайме приложение работает со словарём только через SQLite-схему. Любой внешний источник сначала конвертируется в этот формат.
+
+## Поддерживаемые источники импорта
+
+### 1. CSV-глоссарий
+
+Ожидаемые колонки:
+
+- `headword`
+- `best_translation`
+- `alternatives`
+- `forms`
+- `examples`
+- `notes`
+- `transcription`
+
+Форматы полей:
+
+- альтернативы: `вариант1|вариант2|вариант3`
+- формы: `form1|form2|form3`
+- примеры: `src => dst || src2 => dst2`
+
+### 2. FreeDict TEI
+
+Поддерживаемый поднабор TEI:
+
+- `<entry>`
+- `<form><orth>`
+- `<form><pron>`
+- `<sense><cit type="trans"><quote>`
+- опционально примеры через `cit type="example"`
+
+## Внутренняя SQLite-схема
+
+### `entries`
+
+- `id`
+- `headword`
+- `normalized_headword`
+- `best_translation`
+- `notes`
+
+### `forms`
+
+- `id`
+- `entry_id`
+- `form`
+- `normalized_form`
+
+### `transcriptions`
+
+- `entry_id`
+- `ipa`
+
+### `senses`
+
+- `id`
+- `entry_id`
+- `priority`
+- `translation`
+
+### `examples`
+
+- `id`
+- `entry_id`
+- `example_src`
+- `example_dst`
+
+## Lookup-стратегия
+
+1. нормализация исходного слова;
+2. генерация кандидатных форм (`systems -> system`, `configured -> configure` и т.д.);
+3. lookup по `forms.normalized_form`;
+4. fallback по `entries.normalized_headword`.
+
+## Добавление нового словаря
+
+### Готовый SQLite-пак
+
+Просто положите файл в:
 
 ```text
-data/starter_dictionary.csv
+~/.local/share/pdf_word_translator_mvp/dictionaries/
 ```
 
-## Колонки CSV
+### Импорт из CSV
 
-- `headword` — базовая английская форма;
-- `best_translation` — основной перевод;
-- `alternatives` — дополнительные варианты через `|`;
-- `forms` — словоформы через `|`;
-- `examples` — пары `EN => RU`, разделённые `||`;
-- `notes` — комментарий;
-- `transcription` — транскрипция (если пусто, builder пытается сгенерировать её автоматически).
+```bash
+PYTHONPATH=src python tools/import_dictionary.py source.csv ~/.local/share/pdf_word_translator_mvp/dictionaries/custom.sqlite --format csv
+```
 
-## Runtime format
+### Импорт из FreeDict TEI
 
-После сборки используется SQLite:
-
-- `entries`
-- `forms`
-- `transcriptions`
-- `senses`
-- `examples`
-
-## Почему именно так
-
-Такой двухступенчатый формат удобен:
-
-- CSV удобно редактировать руками;
-- SQLite быстро читает runtime-приложение.
+```bash
+PYTHONPATH=src python tools/import_dictionary.py source.tei ~/.local/share/pdf_word_translator_mvp/dictionaries/freedict_custom.sqlite --format freedict-tei
+```

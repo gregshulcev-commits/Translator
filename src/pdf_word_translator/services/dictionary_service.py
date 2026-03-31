@@ -16,3 +16,11 @@ class DictionaryService:
 
     def entry_count(self) -> int:
         return self._dictionary_plugin.available_entries()
+
+    def pack_count(self) -> int:
+        plugins = getattr(self._dictionary_plugin, "plugins", None)
+        if callable(plugins):
+            return len(plugins())
+        if isinstance(plugins, list):
+            return len(plugins)
+        return 1

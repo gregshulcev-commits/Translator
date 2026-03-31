@@ -1,15 +1,28 @@
-# plugin_api.py
+# `plugin_api.py`
 
 ## Назначение
 
-Абстрактные интерфейсы для подключаемых поставщиков.
+Абстрактные интерфейсы плагинов документа и словаря.
 
-## Интерфейсы
+## `DocumentSession`
 
-- `DocumentPlugin`
-- `DocumentSession`
-- `DictionaryPlugin`
+Контракт открытого документа:
 
-## Зачем это нужно
+- `page_count()`
+- `render_page()`
+- `get_tokens()`
+- `find_token_at()`
+- `get_sentence_for_token()`
+- `search()`
 
-Позволяет менять реализацию документа и словаря, не трогая UI.
+## `DocumentPlugin`
+
+Контракт формата документа.
+
+## `DictionaryPlugin`
+
+Контракт словаря:
+
+- `plugin_id()`
+- `lookup()`
+- `available_entries()`
