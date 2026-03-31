@@ -13,7 +13,13 @@
 - TXT plugin;
 - FB2 plugin;
 - workflow от клика до перевода;
-- сохранение UI settings.
+- сохранение UI settings;
+- регрессии v5 по highlight/scroll, Treeview rowheight, async context queue и Yandex folder validation;
+- Argos runtime detection;
+- определение статуса EN↔RU моделей Argos;
+- установка модели Argos по направлению;
+- импорт локального `.argosmodel`;
+- понятные подсказки провайдера при отсутствии модели.
 
 ### Интеграционные тесты
 
@@ -34,14 +40,10 @@
 ```bash
 source .venv/bin/activate
 PYTHONPATH=src pytest
-xvfb-run -a python tests/smoke_gui.py
+xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 ```
 
 ## Актуальный результат в этой сборке
 
-- `pytest`: 16 тестов, все проходят;
-- GUI smoke test: проходит;
-- `cmake --build build --target test`: проходит;
-- `cmake --build build --target install_dictionaries`: проходит в fallback-режиме без сети.
-
-Сырые артефакты лежат в `docs/test_artifacts/`.
+- `pytest`: **28 passed, 2 skipped**;
+- GUI smoke test: проходит.

@@ -1,5 +1,5 @@
-2026-03-25 08:33:07 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pwt_v5_work/pdf_word_translator_mvp_v5/data/starter_dictionary.sqlite
-2026-03-25 08:33:07 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pwt_v5_work/pdf_word_translator_mvp_v5/data/starter_dictionary_ru_en.sqlite
-2026-03-25 08:33:07 | INFO | pdf_word_translator.plugin_loader | Loaded 3 document plugin(s) and 1 dictionary plugin(s)
-2026-03-25 08:33:07 | INFO | pdf_word_translator.services.document_service | Opening document with document.pdf.pymupdf: /tmp/tmpgva3zsdj/gui.pdf
-2026-03-25 08:33:07 | INFO | pdf_word_translator.plugins.document_pdf_pymupdf | Using PyMuPDF document provider for /tmp/tmpgva3zsdj/gui.pdf
+2026-03-25 09:54:48 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pwt_v6_work/pdf_word_translator_mvp_v6/data/starter_dictionary.sqlite
+2026-03-25 09:54:48 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pwt_v6_work/pdf_word_translator_mvp_v6/data/starter_dictionary_ru_en.sqlite
+2026-03-25 09:54:48 | INFO | pdf_word_translator.plugin_loader | Loaded 3 document plugin(s) and 1 dictionary plugin(s)
+2026-03-25 09:54:48 | INFO | pdf_word_translator.services.document_service | Opening document with document.pdf.pymupdf: /tmp/tmp69ijlpcf/gui.pdf
+2026-03-25 09:54:48 | INFO | pdf_word_translator.plugins.document_pdf_pymupdf | Using PyMuPDF document provider for /tmp/tmp69ijlpcf/gui.pdf

@@ -26,6 +26,7 @@
 
 ## Utils
 
+- `docs/modules/argos_manager.md`
 - `docs/modules/dictionary_builder.md`
 - `docs/modules/freedict_importer.md`
 - `docs/modules/dictionary_installer.md`

@@ -2,20 +2,54 @@
 
 ## Назначение
 
-Optional helper для установки модели Argos Translate по одному направлению.
+CLI helper для проверки и установки offline-моделей Argos.
 
-## Параметры
+Скрипт нужен как fallback и companion к GUI manager из меню **Перевод → Офлайн-модели Argos…**.
 
-- `--from-lang`
-- `--to-lang`
+## Поддерживаемые сценарии
 
-## Что делает
+### 1. Показать состояние моделей EN↔RU
 
-1. обновляет Argos package index;
-2. ищет пакет нужного направления;
-3. скачивает `.argosmodel`;
-4. устанавливает его в пользовательское окружение.
+```bash
+PYTHONPATH=src python tools/install_argos_model.py --list
+```
 
-## Примечание
+Показывает:
 
-Скрипт не ставит сам пакет `argostranslate`. Его нужно установить отдельно как optional dependency.
+- установлена ли модель локально;
+- доступна ли она в индексе Argos;
+- версию найденного пакета;
+- поясняющий статус.
+
+### 2. Установить модель по направлению
+
+```bash
+PYTHONPATH=src python tools/install_argos_model.py --from-lang en --to-lang ru
+PYTHONPATH=src python tools/install_argos_model.py --from-lang ru --to-lang en
+```
+
+### 3. Импортировать локальный `.argosmodel`
+
+```bash
+PYTHONPATH=src python tools/install_argos_model.py --file /path/to/model.argosmodel
+```
+
+## Что делает внутри
+
+Скрипт использует общий helper `src/pdf_word_translator/utils/argos_manager.py` и не дублирует логику GUI.
+
+То есть одинаковые правила действуют и для GUI, и для CLI:
+
+- проверка наличия `argostranslate`;
+- проверка/обновление индекса Argos;
+- выбор нужного EN↔RU пакета;
+- установка через `install_from_path()`;
+- мягкие и человекочитаемые ошибки.
+
+## Важное замечание
+
+Скрипт не ставит сам пакет `argostranslate`. Его нужно установить отдельно:
+
+```bash
+python -m pip install -r requirements-optional.txt
+```

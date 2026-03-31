@@ -9,6 +9,7 @@ import urllib.request
 
 from ..models import ContextTranslationResult, TranslationDirection, direction_source_lang, direction_target_lang
 from ..plugin_api import ContextTranslationProvider
+from ..utils.argos_manager import argos_direction_ready
 from ..utils.settings_store import UiSettings
 
 
@@ -43,6 +44,14 @@ class ArgosContextProvider(ContextTranslationProvider):
         return "Argos (офлайн)"
 
     def translate_text(self, text: str, direction: TranslationDirection) -> ContextTranslationResult:
+        ready, message = argos_direction_ready(direction)
+        if not ready:
+            return ContextTranslationResult(
+                provider_id=self.provider_id(),
+                provider_name=self.display_name(),
+                status="error",
+                text=message,
+            )
         try:
             import argostranslate.translate  # type: ignore
         except Exception as exc:  # pragma: no cover - optional dependency
@@ -51,7 +60,7 @@ class ArgosContextProvider(ContextTranslationProvider):
                 provider_name=self.display_name(),
                 status="error",
                 error=str(exc),
-                text="Argos не установлен. Смотрите README: установка optional neural provider.",
+                text=message or "Argos недоступен в текущем окружении.",
             )
         try:
             translated = argostranslate.translate.translate(
@@ -237,7 +246,7 @@ class ContextTranslationService:
 
     PROVIDER_CHOICES = (
         ProviderChoice("disabled", "Отключено", "Вторая строка показывает только статус или пример словаря."),
-        ProviderChoice("argos", "Argos (офлайн)", "Локальная нейронная модель, если установлен Argos."),
+        ProviderChoice("argos", "Argos (офлайн)", "Локальная нейронная модель, если установлен argostranslate и EN↔RU модель."),
         ProviderChoice("libretranslate", "LibreTranslate", "HTTP API: локальный или удалённый сервер LibreTranslate."),
         ProviderChoice("yandex", "Yandex Cloud", "Онлайн API с сервисным аккаунтом и API-ключом."),
     )

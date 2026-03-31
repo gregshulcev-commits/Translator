@@ -32,6 +32,13 @@ from ..providers.context_providers import ContextTranslationService
 from ..services.dictionary_service import DictionaryService
 from ..services.document_service import DocumentService
 from ..services.translation_workflow import TranslationWorkflow, TranslationViewModel
+from ..utils.argos_manager import (
+    ArgosRuntimeState,
+    argos_direction_ready,
+    import_argos_model_from_path,
+    install_argos_model_for_direction,
+    list_argos_models,
+)
 from ..utils.dictionary_catalog import DictionaryPackSpec
 from ..utils.dictionary_installer import (
     available_catalog_items,
@@ -127,6 +134,11 @@ class MainWindow:
         self._catalog_description_var: tk.StringVar | None = None
         self._catalog_source_var: tk.StringVar | None = None
         self._catalog_specs: dict[str, DictionaryPackSpec] = {}
+        self._argos_window: tk.Toplevel | None = None
+        self._argos_tree: ttk.Treeview | None = None
+        self._argos_status_var: tk.StringVar | None = None
+        self._argos_hint_var: tk.StringVar | None = None
+        self._argos_runtime_state: ArgosRuntimeState | None = None
 
         self._build_window()
         self._schedule_context_result_poll()
@@ -225,6 +237,7 @@ class MainWindow:
             )
         self.translate_menu.add_cascade(label="Контекстный перевод", menu=provider_menu)
         self.translate_menu.add_command(label="Настроить текущий провайдер…", command=self.show_provider_settings_dialog)
+        self.translate_menu.add_command(label="Офлайн-модели Argos…", command=self.show_argos_model_manager)
         self.translate_menu.add_command(label="Как установить Argos…", command=self.show_argos_installation_help)
         self.menu_bar.add_cascade(label="Перевод", menu=self.translate_menu)
 
@@ -812,6 +825,11 @@ class MainWindow:
         provider_id = self.context_service.active_provider_id()
         if provider_id == "disabled":
             return "Контекстный перевод отключён."
+        if provider_id == "argos":
+            ready, message = argos_direction_ready(self.settings.direction)
+            if ready:
+                return f"{self.context_service.provider_name()}: локальная модель готова к переводу контекста."
+            return self._compact_text(message, limit=260)
         return f"{self.context_service.provider_name()}: готов к переводу контекста."
 
     def _dictionary_example(self, entry) -> str:
@@ -1099,6 +1117,208 @@ class MainWindow:
         webbrowser.open(url)
 
     # ------------------------------------------------------------------
+    # Argos offline model manager
+    # ------------------------------------------------------------------
+    def show_argos_model_manager(self) -> None:
+        if self._argos_window is not None and self._argos_window.winfo_exists():
+            self._argos_window.deiconify()
+            self._argos_window.lift()
+            self._populate_argos_model_tree(update_index=False)
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("Офлайн-модели Argos")
+        window.geometry("980x520")
+        window.transient(self.root)
+        window.configure(background="#eef2f7")
+        self._argos_window = window
+        window.protocol("WM_DELETE_WINDOW", self._close_argos_model_manager)
+
+        top = ttk.Frame(window, padding=12, style="App.TFrame")
+        top.pack(fill=tk.BOTH, expand=True)
+
+        intro = (
+            "Argos используется только для офлайн-контекстного перевода предложений. "
+            "Сначала установите optional dependency argostranslate, затем скачайте модель для EN → RU "
+            "или RU → EN прямо из этого окна. Если модель уже скачана заранее, можно импортировать локальный .argosmodel файл."
+        )
+        ttk.Label(top, text=intro, style="Context.TLabel", wraplength=930, justify=tk.LEFT).pack(anchor="w", pady=(0, 10))
+
+        columns = ("direction", "status", "version", "package")
+        tree = ttk.Treeview(top, columns=columns, show="headings", height=8, style="Catalog.Treeview")
+        tree.heading("direction", text="Направление")
+        tree.heading("status", text="Статус")
+        tree.heading("version", text="Версия")
+        tree.heading("package", text="Пакет")
+        tree.column("direction", width=120, anchor="center")
+        tree.column("status", width=190, anchor="center")
+        tree.column("version", width=110, anchor="center")
+        tree.column("package", width=500, anchor="w")
+        tree.pack(fill=tk.BOTH, expand=True)
+        tree.bind("<<TreeviewSelect>>", self._on_argos_selection_changed)
+        self._argos_tree = tree
+
+        bottom = ttk.Frame(top, padding=(0, 10, 0, 0), style="App.TFrame")
+        bottom.pack(fill=tk.X)
+        self._argos_status_var = tk.StringVar(value="Выберите направление или используйте текущий перевод EN ↔ RU.")
+        self._argos_hint_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self._argos_status_var, style="Context.TLabel", wraplength=930, justify=tk.LEFT).pack(anchor="w")
+        ttk.Label(bottom, textvariable=self._argos_hint_var, style="Muted.TLabel", wraplength=930, justify=tk.LEFT).pack(anchor="w", pady=(4, 10))
+
+        buttons = ttk.Frame(bottom, style="App.TFrame")
+        buttons.pack(fill=tk.X)
+        ttk.Button(buttons, text="Обновить список из сети", command=lambda: self._populate_argos_model_tree(update_index=True)).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Установить выбранную модель", command=self.install_selected_argos_model).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(buttons, text="Импортировать .argosmodel…", command=self.import_argos_model_from_dialog).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(buttons, text="Выбрать Argos", command=self.select_argos_provider).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(buttons, text="Справка", command=self.show_argos_installation_help).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(buttons, text="Закрыть", command=self._close_argos_model_manager).pack(side=tk.RIGHT)
+
+        self._populate_argos_model_tree(update_index=False)
+
+    def _close_argos_model_manager(self) -> None:
+        if self._argos_window is not None and self._argos_window.winfo_exists():
+            self._argos_window.destroy()
+        self._argos_window = None
+        self._argos_tree = None
+        self._argos_status_var = None
+        self._argos_hint_var = None
+        self._argos_runtime_state = None
+
+    def _populate_argos_model_tree(self, *, update_index: bool = False) -> None:
+        if self._argos_tree is None:
+            return
+        tree = self._argos_tree
+        for item in tree.get_children():
+            tree.delete(item)
+        self.root.configure(cursor="watch")
+        self.root.update_idletasks()
+        try:
+            state = list_argos_models(update_index=update_index)
+            self._argos_runtime_state = state
+            for model in state.models:
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=model.direction,
+                    values=(
+                        model.display_name,
+                        self._argos_model_status_text(model),
+                        model.package_version or "—",
+                        model.package_name or "—",
+                    ),
+                )
+            self._select_current_argos_direction()
+            selected = state.for_direction(self.settings.direction)
+            if selected is None and state.models:
+                selected = state.models[0]
+            self._set_argos_details(selected)
+            if update_index:
+                self._update_status("Argos: список офлайн-моделей обновлён")
+        except Exception as exc:  # pragma: no cover - GUI error path only
+            LOGGER.exception("Argos model manager refresh failed")
+            messagebox.showerror("Argos", str(exc))
+        finally:
+            self.root.configure(cursor="")
+
+    @staticmethod
+    def _argos_model_status_text(model) -> str:
+        if model.installed:
+            return "Установлена"
+        if model.available_for_download:
+            return "Доступна"
+        return "Нет пакета"
+
+    def _select_current_argos_direction(self) -> None:
+        if self._argos_tree is None:
+            return
+        current_direction = self.settings.direction
+        if current_direction in self._argos_tree.get_children(""):
+            self._argos_tree.selection_set(current_direction)
+            self._argos_tree.focus(current_direction)
+
+    def _selected_argos_direction(self) -> TranslationDirection | None:
+        if self._argos_tree is None:
+            return None
+        selection = self._argos_tree.selection()
+        if selection:
+            return selection[0]
+        return self.settings.direction
+
+    def _on_argos_selection_changed(self, _event: tk.Event | None = None) -> None:
+        if self._argos_runtime_state is None:
+            return
+        direction = self._selected_argos_direction()
+        model = self._argos_runtime_state.for_direction(direction) if direction is not None else None
+        self._set_argos_details(model)
+
+    def _set_argos_details(self, model) -> None:
+        if self._argos_status_var is None or self._argos_hint_var is None:
+            return
+        if model is None:
+            self._argos_status_var.set("Выберите направление, чтобы увидеть состояние модели Argos.")
+            self._argos_hint_var.set("")
+            return
+        prefix = f"{model.display_name}: "
+        if model.installed:
+            status = prefix + "локальная модель установлена и готова к офлайн-переводу."
+        elif model.available_for_download:
+            status = prefix + "модель доступна для загрузки из индекса Argos."
+        else:
+            status = prefix + "локальная модель пока не найдена."
+        self._argos_status_var.set(status)
+
+        notes = model.notes
+        if self._argos_runtime_state is not None and self._argos_runtime_state.dependency_error:
+            notes = self._argos_runtime_state.dependency_error
+        elif self._argos_runtime_state is not None and self._argos_runtime_state.index_error and not model.installed:
+            notes = self._argos_runtime_state.index_error
+        if model.download_url:
+            notes = f"{notes} Источник: {model.download_url}".strip()
+        self._argos_hint_var.set(notes)
+
+    def _run_argos_task(self, action_label: str, task) -> None:
+        self.root.configure(cursor="watch")
+        self.root.update_idletasks()
+        try:
+            result = task()
+            self._populate_argos_model_tree(update_index=False)
+            self._update_status(result.message or action_label)
+            messagebox.showinfo("Argos", result.message)
+            if self.context_service.active_provider_id() == "argos" and self.current_view_model is not None:
+                self._start_context_translation(self.current_view_model)
+        except Exception as exc:  # pragma: no cover - GUI error path only
+            LOGGER.exception("Argos action failed: %s", action_label)
+            messagebox.showerror("Ошибка Argos", str(exc))
+        finally:
+            self.root.configure(cursor="")
+
+    def install_selected_argos_model(self) -> None:
+        direction = self._selected_argos_direction()
+        if direction is None:
+            messagebox.showinfo("Argos", "Сначала выберите направление в списке.")
+            return
+        self._run_argos_task(
+            f"Установлена модель Argos {self._direction_display(direction)}",
+            lambda: install_argos_model_for_direction(direction),
+        )
+
+    def import_argos_model_from_dialog(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Выберите локальную модель Argos",
+            filetypes=[("Argos model", "*.argosmodel"), ("Все файлы", "*.*")],
+        )
+        if not path:
+            return
+        self._run_argos_task(
+            "Импортирована локальная модель Argos",
+            lambda: import_argos_model_from_path(Path(path)),
+        )
+
+    def select_argos_provider(self) -> None:
+        self.provider_var.set("argos")
+        self.on_provider_menu_change()
+    # ------------------------------------------------------------------
     # Direction/provider settings
     # ------------------------------------------------------------------
     def _direction_display(self, direction: TranslationDirection) -> str:
@@ -1196,12 +1416,39 @@ class MainWindow:
                     self._start_context_translation(self.current_view_model)
 
         elif provider_id == "argos":
-            info = (
-                "Argos — офлайн провайдер. Он появится в приложении автоматически, если установить\n"
-                "optional зависимости и модель направления EN↔RU. В проект включён отдельный\n"
-                "скрипт tools/install_argos_model.py и инструкция в README."
-            )
+            state = list_argos_models(update_index=False, directions=(self.settings.direction,))
+            model = state.for_direction(self.settings.direction)
+            status_line = f"Текущее направление: {self._direction_display(self.settings.direction)}."
+            if not state.dependency_ready:
+                info = (
+                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
+                    f"{status_line}\n"
+                    "Python-пакет argostranslate пока не установлен. Сначала поставьте optional dependency, затем откройте менеджер офлайн-моделей и установите модель из сети или импортируйте локальный .argosmodel файл."
+                )
+            elif model is not None and model.installed:
+                info = (
+                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
+                    f"{status_line}\n"
+                    "Локальная модель для текущего направления уже установлена. Провайдер готов к работе без интернета после однократной установки модели."
+                )
+            elif model is not None and model.available_for_download:
+                info = (
+                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
+                    f"{status_line}\n"
+                    "Для текущего направления модель найдена в индексе Argos. Откройте менеджер офлайн-моделей, чтобы скачать её прямо из GUI."
+                )
+            else:
+                info = (
+                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
+                    f"{status_line}\n"
+                    "Локальная модель для текущего направления пока не найдена. Её можно скачать из GUI или импортировать из локального .argosmodel файла."
+                )
             ttk.Label(frame, text=info, style="Context.TLabel", wraplength=520, justify=tk.LEFT).pack(anchor="w", pady=(14, 10))
+            ttk.Button(
+                frame,
+                text="Открыть менеджер офлайн-моделей…",
+                command=lambda: (window.destroy(), self.show_argos_model_manager()),
+            ).pack(anchor="w")
 
             def save() -> None:
                 window.destroy()
@@ -1221,17 +1468,26 @@ class MainWindow:
         direction = self.settings.direction
         from_code = "en" if direction == EN_RU else "ru"
         to_code = "ru" if direction == EN_RU else "en"
-        command = (
+        install_command = "source .venv/bin/activate && python -m pip install -r requirements-optional.txt"
+        model_command = (
             f"source .venv/bin/activate && PYTHONPATH=src python tools/install_argos_model.py "
             f"--from-lang {from_code} --to-lang {to_code}"
         )
+        list_command = "source .venv/bin/activate && PYTHONPATH=src python tools/install_argos_model.py --list"
         messagebox.showinfo(
             "Установка Argos",
-            "Для офлайн контекстного перевода через Argos:\n\n"
-            "1. Установите optional зависимости из README.\n"
-            "2. Запустите команду:\n\n"
-            f"{command}\n\n"
-            "После установки выберите провайдер «Argos (офлайн)» в меню «Перевод»."
+            "Argos нужен только для офлайн контекстного перевода предложений.\n\n"
+            "Рекомендуемый путь через GUI:\n"
+            "1. Установите optional dependency:\n"
+            f"   {install_command}\n"
+            "2. В приложении откройте «Перевод → Офлайн-модели Argos…».\n"
+            "3. Нажмите «Обновить список из сети» и «Установить выбранную модель»\n"
+            "   или импортируйте уже скачанный .argosmodel файл.\n"
+            "4. Выберите провайдер «Argos (офлайн)».\n\n"
+            "CLI-альтернатива для текущего направления:\n"
+            f"{model_command}\n\n"
+            "Проверка доступных пакетов:\n"
+            f"{list_command}"
         )
 
     def _retranslate_current_selection(self) -> None:
