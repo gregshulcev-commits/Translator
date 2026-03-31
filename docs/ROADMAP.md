@@ -1,46 +1,49 @@
 # Roadmap
 
-## Сделано в MVP v6
+## Сделано в MVP v7
 
-- просмотр PDF;
-- просмотр TXT и FB2;
-- клик по слову и выделение;
-- компактная нижняя карточка перевода;
+### Desktop
+
+- просмотр PDF / TXT / FB2;
+- клик по слову и компактная словарная карточка;
 - поиск по документу;
-- непрерывная прокрутка всего документа;
-- zoom по `Ctrl + колесо мыши`;
-- zoom до 800%;
-- ленивый рендер видимых страниц;
-- split compound tokens (`a/b`, `a\b`);
-- встроенные словари EN→RU и RU→EN;
-- bundled technical / literary packs;
+- непрерывная прокрутка и zoom до 800%;
+- lazy render видимых страниц;
+- bundled SQLite-словари EN→RU и RU→EN;
 - каталог словарных пакетов;
-- переключение EN ↔ RU;
-- optional layer для контекстных провайдеров;
-- настройка размера интерфейса;
-- исправление scroll-back к выделенному слову;
-- корректное масштабирование строк в списках при крупном UI font size;
-- thread-safe доставка async provider result в Tk UI;
-- устойчивый `settings.json`;
-- явная валидация `Folder ID` для Yandex Cloud;
-- **штатный сценарий офлайн-нейроперевода через Argos**;
-- **GUI manager для установки и импорта Argos-моделей**;
-- расширенный CLI helper `tools/install_argos_model.py`;
-- автотесты и GUI smoke test.
+- optional provider layer;
+- offline Argos workflow с GUI manager;
+- исправления v5 по scroll-back, Treeview rowheight, async queue и `settings.json`;
+- исправление v7 для **окна справки Argos**: теперь оно растягивается и позволяет копировать команды.
+
+### Android / APK branch
+
+- создана директория `android-client/`;
+- добавлен native Android UI prototype;
+- добавлен `mobile_api.py` как общий словарный bridge;
+- добавлен bootstrap встроенных SQLite assets;
+- добавлен PDF render prototype через Android API;
+- добавлен ручной словарный lookup внутри Android-клиента.
 
 ## Ближайший следующий шаг (desktop)
 
 - удаление словарей из GUI;
 - удаление Argos-моделей из GUI;
-- прогресс-бар или фоновые job-ы для тяжёлых сетевых установок;
+- прогресс-бар или фоновые job-ы для сетевых операций;
 - сохранить last-opened document и last-view position;
-- добавить историю слов как отдельный plugin / service;
-- улучшить rendering performance ещё сильнее (фоновые page jobs / prefetch queue);
-- добавить clipboard helper.
+- улучшить rendering performance ещё сильнее.
+
+## Ближайший следующий шаг (Android)
+
+- tap-to-word selection по PDF;
+- слой text/token coordinates для Android viewer;
+- повторное использование контекстного provider layer там, где это уместно;
+- baseline UX для планшетов и телефонов;
+- добавить Gradle wrapper и зафиксировать сборочный pipeline.
 
 ## Следующий слой перевода
 
-- расширить набор offline-моделей и направлений поверх того же manager pattern;
+- расширить набор offline-моделей и направлений поверх manager pattern;
 - добавить выбор источника второй строки: provider result / dictionary example / both;
 - попробовать file-level neural translation как отдельный слой, не ломая словарный MVP.
 
@@ -49,8 +52,7 @@
 - OCR-plugin;
 - постраничное распознавание;
 - редактирование OCR-результата пользователем;
-- поддержка текста на изображениях;
-- простая карточка истории слов.
+- поддержка текста на изображениях.
 
 ## v1.2
 
@@ -60,8 +62,8 @@
 
 ## v2
 
-- отдельный Android-клиент на другом UI-слое;
-- полноценный translation plugin layer для фраз и предложений;
+- полноценный Android-клиент с tap-to-word workflow;
+- стабильный pipeline сборки APK;
+- translation plugin layer для фраз и предложений;
 - нейронный перевод как optional pack / model family;
-- смена GUI backend-а (Qt/QML, Kivy или другой мобильный стек);
-- сборка и упаковка APK как отдельный pipeline, а не прямой перенос текущего Tkinter UI.
+- возможная смена desktop GUI backend-а при сохранении сервисов и словарного слоя.

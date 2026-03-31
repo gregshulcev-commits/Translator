@@ -6,8 +6,7 @@
 
 - нормализация словоформ;
 - lookup в SQLite-словаре;
-- импорт FreeDict TEI;
-- импорт CSV/копирование SQLite-паков;
+- import CSV / FreeDict TEI / SQLite packs;
 - корректность путей конфигурации;
 - PDF provider на синтетическом документе;
 - TXT plugin;
@@ -19,16 +18,19 @@
 - определение статуса EN↔RU моделей Argos;
 - установка модели Argos по направлению;
 - импорт локального `.argosmodel`;
-- понятные подсказки провайдера при отсутствии модели.
+- понятные подсказки провайдера при отсутствии модели;
+- **mobile_api bridge**: конфигурация путей, summary и lookup;
+- **v7 regression** для Argos help dialog;
+- **Android branch layout**: наличие Gradle/Kotlin/asset-файлов и Chaquopy-конфигурации.
 
 ### Интеграционные тесты
 
 - чтение и токенизация приложенных реальных PDF;
-- поиск токена `driver` в `IRIO_EPICS_Device_Driver_User's_Manual__RAJ9P8_v1_7.pdf`.
+- поиск токена `driver` в пользовательском PDF.
 
 ### GUI smoke test
 
-- создание окна;
+- создание desktop-окна;
 - открытие многостраничного PDF;
 - клик по слову;
 - обновление нижней панели перевода;
@@ -43,7 +45,14 @@ PYTHONPATH=src pytest
 xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 ```
 
-## Актуальный результат в этой сборке
+## Актуальный результат в v7
 
-- `pytest`: **28 passed, 2 skipped**;
+- `pytest`: **37 passed, 2 skipped**;
 - GUI smoke test: проходит.
+
+## Что не проверяется автоматически
+
+- сборка Android APK;
+- запуск Android UI на устройстве/эмуляторе;
+- Gradle sync и Android Studio integration;
+- real tap-to-word selection внутри Android PDF viewer, потому что этот слой ещё не реализован.

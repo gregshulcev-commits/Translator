@@ -10,6 +10,7 @@
 - `docs/modules/translation_workflow.md`
 - `docs/modules/document_service.md`
 - `docs/modules/dictionary_service.md`
+- `docs/modules/mobile_api.md`
 
 ## Providers
 

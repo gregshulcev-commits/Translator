@@ -1,10 +1,11 @@
-# Отчёт о тестировании
+# Отчёт о тестировании v7
 
 ## 1. Pytest
 
 Результат:
 
-- **28/28 тестов проходят**, **2 пропущены** как ожидаемые environment-specific сценарии.
+- **37 тестов проходят**;
+- **2 теста пропущены** как ожидаемые environment-specific сценарии.
 
 Покрыты:
 
@@ -16,13 +17,15 @@
 - dictionary installer helpers;
 - workflow;
 - переключение направления EN ↔ RU;
-- split compound tokens (`diagnostic\measurement`);
 - реальные PDF пользователя;
 - settings store;
 - регрессии v5;
-- Argos model manager и provider hints.
+- Argos model manager и provider hints;
+- `mobile_api.py`;
+- v7 regression для Argos help dialog;
+- Android branch layout smoke checks.
 
-## 2. GUI smoke test
+## 2. GUI smoke test (desktop)
 
 Проверено:
 
@@ -31,19 +34,25 @@
 - слово `configuration` переводится корректно;
 - scroll двигает viewport;
 - `Ctrl + колесо` меняет zoom;
-- compact help panel не показывает сырое предложение из документа.
+- нижняя панель не ломается после v7-изменений.
 
-## 3. Реальные PDF пользователя
+## 3. Android branch
 
-Проверено в `tests/test_real_pdfs.py`:
+Автоматически проверено в Python-тестах:
 
-- загруженные PDF имеют текстовый слой;
-- PyMuPDF может получить по ним word tokens;
-- на реальном PDF находится слово `driver`.
+- присутствуют ключевые файлы `android-client/`;
+- в Android module включён `com.chaquo.python`;
+- Python source подключается из общего `../../src`;
+- bundled SQLite assets лежат на ожидаемом месте.
 
-## 4. Что дополнительно покрыто в v6
+Не проверено автоматически в этой среде:
 
-- отсутствие `argostranslate` не ломает приложение, а даёт мягкий статус;
-- GUI/CLI сценарии установки Argos-моделей используют общий helper layer;
-- локальный импорт `.argosmodel` обновляет статус направления;
-- провайдер `Argos (офлайн)` возвращает понятную подсказку, если модель ещё не установлена.
+- Gradle sync;
+- реальная сборка APK;
+- запуск на устройстве/эмуляторе.
+
+Причина проста: в рабочем окружении не было Android SDK и системного Gradle.
+
+## 4. Вывод
+
+v7 стабилен для desktop-ветки и уже содержит **исходный код Android branch** с bridge-слоем, документацией и тестовым покрытием Python-части.

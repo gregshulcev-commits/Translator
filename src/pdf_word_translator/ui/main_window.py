@@ -13,7 +13,7 @@ import logging
 import queue
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 import webbrowser
 
 from PIL import ImageTk
@@ -1464,6 +1464,43 @@ class MainWindow:
         ttk.Button(buttons, text="OK", command=save).pack(side=tk.RIGHT)
         ttk.Button(buttons, text="Отмена", command=window.destroy).pack(side=tk.RIGHT, padx=(0, 6))
 
+    def _show_readonly_text_dialog(self, title: str, message: str, *, geometry: str = "860x620") -> None:
+        window = tk.Toplevel(self.root)
+        window.title(title)
+        window.geometry(geometry)
+        window.minsize(580, 360)
+        window.transient(self.root)
+        window.configure(background="#eef2f7")
+
+        frame = ttk.Frame(window, padding=12, style="App.TFrame")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        text_widget = scrolledtext.ScrolledText(
+            frame,
+            wrap=tk.WORD,
+            font=tkfont.nametofont("TkTextFont"),
+            relief="flat",
+            borderwidth=0,
+            padx=8,
+            pady=8,
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        text_widget.insert("1.0", message)
+        text_widget.configure(state=tk.DISABLED)
+
+        buttons = ttk.Frame(frame, style="App.TFrame")
+        buttons.pack(fill=tk.X, pady=(10, 0))
+
+        def copy_text() -> None:
+            window.clipboard_clear()
+            window.clipboard_append(message)
+            self._update_status(f"Содержимое окна «{title}» скопировано в буфер обмена")
+
+        ttk.Button(buttons, text="Скопировать", command=copy_text).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="OK", command=window.destroy).pack(side=tk.RIGHT)
+        window.bind("<Escape>", lambda _event: window.destroy())
+        text_widget.focus_set()
+
     def show_argos_installation_help(self) -> None:
         direction = self.settings.direction
         from_code = "en" if direction == EN_RU else "ru"
@@ -1474,21 +1511,22 @@ class MainWindow:
             f"--from-lang {from_code} --to-lang {to_code}"
         )
         list_command = "source .venv/bin/activate && PYTHONPATH=src python tools/install_argos_model.py --list"
-        messagebox.showinfo(
-            "Установка Argos",
+        help_message = (
             "Argos нужен только для офлайн контекстного перевода предложений.\n\n"
             "Рекомендуемый путь через GUI:\n"
             "1. Установите optional dependency:\n"
-            f"   {install_command}\n"
+            f"   {install_command}\n\n"
             "2. В приложении откройте «Перевод → Офлайн-модели Argos…».\n"
-            "3. Нажмите «Обновить список из сети» и «Установить выбранную модель»\n"
+            "3. Нажмите «Обновить список из сети», затем «Установить выбранную модель»\n"
             "   или импортируйте уже скачанный .argosmodel файл.\n"
             "4. Выберите провайдер «Argos (офлайн)».\n\n"
             "CLI-альтернатива для текущего направления:\n"
             f"{model_command}\n\n"
             "Проверка доступных пакетов:\n"
-            f"{list_command}"
+            f"{list_command}\n\n"
+            "Подсказка: это окно можно растягивать, а команды — копировать кнопкой снизу."
         )
+        self._show_readonly_text_dialog("Установка Argos", help_message)
 
     def _retranslate_current_selection(self) -> None:
         if self.current_highlight_token is None:

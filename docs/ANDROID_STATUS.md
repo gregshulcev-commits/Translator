@@ -1,66 +1,101 @@
-# Android-статус
+# Android-статус v7
 
 ## Короткий вывод
 
-В этой итерации **рабочий APK не включён**.
+В v7 проект перешёл от «Android как следующая идея» к **реальной APK-ветке с исходным кодом**.
 
-Причина не в словарном или document-core слое, а в GUI-стеке: текущая desktop-версия использует **Tkinter**, а Android требует отдельный UI-слой. Проект уже готов к такому разветвлению на уровне моделей, сервисов, словарного формата и document plugins, но мобильный клиент нужно собирать отдельно.
+В архив теперь входят:
 
-## Что уже готово для будущей Android-ветки
+- `android-client/` — отдельный Android Gradle project;
+- `src/pdf_word_translator/mobile_api.py` — bridge-модуль для мобильного клиента;
+- встроенные starter SQLite-словари как Android assets.
 
-Полезная часть проекта уже отделена от GUI:
+Готовый release/debug APK в архив **не включён**: в рабочем окружении не было Android SDK и системного Gradle, поэтому ветка оформлена как **исходный проект для Android Studio**, а не как уже собранный бинарь.
 
-- `services/`
-- `models.py`
-- `plugin_api.py`
-- словарный SQLite-формат
-- import / install tools
-- layer контекстных провайдеров
+## Почему Android ветка отдельная
 
-Это позволяет переносить не всё приложение, а только UI-слой.
+Текущий desktop viewer построен на **Tkinter**. Для Android это не является рабочим UI-путём, поэтому v7 делает правильное архитектурное разделение:
 
-## Рекомендуемая стратегия
+- **desktop** остаётся reference implementation;
+- **android-client** получает нативный Android UI;
+- общий словарный слой остаётся в `src/pdf_word_translator/`;
+- Android вызывает Python только через узкий bridge `mobile_api.py`.
 
-1. сохранить Linux-клиент как reference implementation;
-2. переиспользовать `services/`, `models.py`, dictionary format и import tools;
-3. сделать **отдельный Android-клиент**;
-4. сначала поддержать словари и чтение текста;
-5. затем отдельно решить мобильный PDF viewer.
+## Что уже реализовано
 
-## Реалистичные варианты Android-ветки
+### 1. Android project skeleton
 
-### Вариант A. Android WebView + PDF.js
+Есть:
 
-Плюсы:
+- `settings.gradle.kts`
+- `build.gradle.kts`
+- `gradle.properties`
+- `app/build.gradle.kts`
+- `AndroidManifest.xml`
+- `activity_main.xml`
 
-- хороший контроль над PDF text layer;
-- touch-friendly взаимодействие;
-- отделение Android-клиента от desktop GUI.
+### 2. Kotlin слой
 
-Минусы:
+Есть:
 
-- нужен отдельный packaging / bridge layer;
-- нужно заново продумать storage и dictionary bridge.
+- `MainActivity.kt` — основной UI;
+- `DictionaryBridge.kt` — вызов Python через Chaquopy;
+- `AssetBootstrap.kt` — копирование SQLite-словарей из assets;
+- `PdfPageRenderer.kt` — нативный рендер PDF-страниц.
 
-### Вариант B. Kivy-клиент
+### 3. Python bridge
 
-Плюсы:
+Есть модуль:
 
-- Python-переиспользование;
-- Android packaging через Buildozer / python-for-android.
+- `src/pdf_word_translator/mobile_api.py`
 
-Минусы:
+Он умеет:
 
-- отдельная реализация viewer-а;
-- PDF click workflow придётся подгонять под мобильное взаимодействие.
+- принимать пути к SQLite-словарям;
+- кешировать словарный service;
+- возвращать краткое summary подключённых словарей;
+- выполнять lookup слова;
+- отдавать JSON-friendly ответ для Kotlin.
 
-### Вариант C. Qt/QML rewrite
+### 4. Bundled assets
 
-Плюсы:
+Android-клиент уже содержит:
 
-- хороший долгосрочный путь для desktop + Android;
-- нативный стек для viewer-а.
+- `starter_dictionary.sqlite`
+- `starter_dictionary_ru_en.sqlite`
 
-Минусы:
+Это позволяет запустить первый Android prototype без отдельного импорта словарей вручную.
 
-- это уже отдельная фаза разработки, а не «следующий маленький патч».
+## Что уже умеет Android prototype
+
+- открыть PDF через системный picker;
+- отрендерить страницу PDF;
+- листать страницы кнопками;
+- ввести слово руками и получить словарный перевод;
+- переключить `EN → RU` / `RU → EN`;
+- использовать тот же словарный SQLite-формат, что и desktop-приложение.
+
+## Что ещё не реализовано
+
+- tap-to-word selection по PDF;
+- координатный text layer для Android viewer;
+- OCR;
+- контекстный provider layer внутри APK;
+- GUI-менеджер Argos-моделей внутри Android-клиента;
+- готовый `gradlew` wrapper и автоматический pipeline сборки внутри этого архива.
+
+## Как открыть в Android Studio
+
+1. Откройте директорию `android-client/`.
+2. Дождитесь sync проекта.
+3. Проверьте, что Android SDK установлен.
+4. Соберите `debug` APK из IDE.
+
+## Следующий технический шаг для Android
+
+Самый важный следующий этап не «ещё один красивый экран», а именно **text selection / tap-to-word pipeline** для PDF:
+
+1. определить источник word/token coordinates в Android viewer;
+2. привязать их к render scale и scroll state;
+3. вызывать тот же `mobile_api.lookup_word_json()` уже не по введённому слову, а по токену под пальцем;
+4. после этого подключать контекстный перевод как отдельный слой.

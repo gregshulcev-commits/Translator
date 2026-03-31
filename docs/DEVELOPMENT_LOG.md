@@ -1,5 +1,15 @@
 # Development log
 
+## v7 highlights
+
+- replaced the narrow Argos installation `messagebox` with a resizable read-only dialog;
+- added copy-to-clipboard for long Argos setup commands;
+- introduced `src/pdf_word_translator/mobile_api.py` as a JSON-friendly bridge for Android;
+- added `android-client/` with Kotlin + Chaquopy + native PDF render prototype;
+- bundled starter SQLite dictionaries into Android assets;
+- refreshed README, Android docs, user guide, architecture, roadmap and module docs;
+- added tests for `mobile_api.py`, v7 help dialog regression and Android branch layout.
+
 ## v6 highlights
 
 - finished the v5 regression fixes and kept zoom ceiling at 800%;
@@ -18,18 +28,3 @@
 - moved async provider result delivery into a queue processed on the Tk main thread;
 - hardened `settings.json` loading against unknown keys and invalid values;
 - clarified and validated `Folder ID` for Yandex Cloud.
-
-## v4 highlights
-
-- fixed text-plugin base class mismatch;
-- fixed composite dictionary plugin to fully implement the plugin API;
-- added starter EN→RU and starter RU→EN packs;
-- added bundled technical / literary packs;
-- added lazy page rendering to reduce zoom freezes on large PDFs;
-- added compound token splitting for `a/b` and `a\b`;
-- added direction switching EN ↔ RU;
-- added context provider port with Disabled / Argos / LibreTranslate / Yandex adapters;
-- removed raw document sentence from the compact panel;
-- added in-app dictionary catalog;
-- added initial Argos model install helper;
-- expanded test coverage and refreshed docs.

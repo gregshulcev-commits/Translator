@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PDF Word Translator Android</string>
+    <string name="android_branch_subtitle">APK ветка v7: native Android UI + Python dictionary bridge</string>
+    <string name="status_bootstrap">Подготовка встроенных словарей…</string>
+    <string name="open_pdf">Открыть PDF</string>
+    <string name="prev_page">◀</string>
+    <string name="next_page">▶</string>
+    <string name="no_pdf_loaded">PDF ещё не открыт</string>
+    <string name="pdf_page">Страница PDF</string>
+    <string name="pdf_hint">Ветка v7 уже умеет рендерить PDF и выполнять словарный lookup через Python bridge. Tap-to-word selection для PDF будет отдельной фазой.</string>
+    <string name="lookup_hint">Введите слово вручную или вставьте его из буфера обмена</string>
+    <string name="direction_en_ru">EN → RU</string>
+    <string name="direction_ru_en">RU → EN</string>
+    <string name="lookup_button">Перевести слово</string>
+    <string name="lookup_empty">Введите слово для поиска в словаре.</string>
+    <string name="lookup_not_found">Перевод не найден.</string>
+</resources>

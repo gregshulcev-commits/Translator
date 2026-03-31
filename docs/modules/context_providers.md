@@ -45,3 +45,8 @@ Provider layer для второй строки нижней панели.
 ## Почему это отдельный модуль
 
 Словарный перевод слова и контекстный перевод предложения — разные задачи. Этот слой позволяет добавлять новые online / offline-провайдеры без изменений в document workflow и без переписывания viewer-а.
+
+
+## Связь с Android branch
+
+В v7 provider layer пока подключён только к desktop UI. Android-клиент использует отдельный `mobile_api.py` и словарный lookup, а не `ContextTranslationService`.
