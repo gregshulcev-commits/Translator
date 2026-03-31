@@ -51,6 +51,7 @@ class _TextPage:
     image: Image.Image
     tokens: list[WordToken]
     sentence_words: list[tuple[str, WordToken]]
+    token_indexes: dict[str, int]
     page_text: str
 
 
@@ -98,9 +99,9 @@ class TextDocumentSession(DocumentSession):
         return nearest if nearest_distance <= MAX_NEAREST_DISTANCE else None
 
     def get_sentence_for_token(self, token: WordToken) -> DocumentSentence:
-        sentence_words = self._pages[token.page_index].sentence_words
-        ordered_tokens = [item[1] for item in sentence_words]
-        token_index = next((idx for idx, current in enumerate(ordered_tokens) if current.token_id == token.token_id), None)
+        page = self._pages[token.page_index]
+        sentence_words = page.sentence_words
+        token_index = page.token_indexes.get(token.token_id)
         if token_index is None:
             return DocumentSentence(page_index=token.page_index, text=token.text)
 
@@ -158,18 +159,20 @@ class TextDocumentSession(DocumentSession):
         image, draw = self._new_page_canvas()
         tokens: list[WordToken] = []
         sentence_words: list[tuple[str, WordToken]] = []
+        token_indexes: dict[str, int] = {}
         page_text_words: list[str] = []
         page_index = 0
         token_counter = 0
         y = MARGIN_Y
 
         def flush_page() -> None:
-            nonlocal image, draw, tokens, sentence_words, page_text_words, page_index, token_counter, y
+            nonlocal image, draw, tokens, sentence_words, token_indexes, page_text_words, page_index, token_counter, y
             pages.append(
                 _TextPage(
                     image=image,
                     tokens=list(tokens),
                     sentence_words=list(sentence_words),
+                    token_indexes=dict(token_indexes),
                     page_text=self._join_words(page_text_words),
                 )
             )
@@ -178,6 +181,7 @@ class TextDocumentSession(DocumentSession):
             image, draw = self._new_page_canvas()
             tokens = []
             sentence_words = []
+            token_indexes = {}
             page_text_words = []
             y = MARGIN_Y
 
@@ -214,6 +218,7 @@ class TextDocumentSession(DocumentSession):
                     word_no=token_counter,
                 )
                 for token in split_tokens:
+                    token_indexes[token.token_id] = len(sentence_words)
                     tokens.append(token)
                     sentence_words.append((token.text, token))
                     token_counter += 1
@@ -229,6 +234,7 @@ class TextDocumentSession(DocumentSession):
                 image=image,
                 tokens=list(tokens),
                 sentence_words=list(sentence_words),
+                token_indexes=dict(token_indexes),
                 page_text=self._join_words(page_text_words),
             )
         )

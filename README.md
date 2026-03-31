@@ -167,7 +167,7 @@ PYTHONPATH=src python tools/install_argos_model.py --from-lang ru --to-lang en
 
 1. выбери в меню **Перевод → Контекстный перевод → Yandex Cloud**;
 2. открой **Перевод → Настроить текущий провайдер…**;
-3. укажи `API key` или `IAM token` и при необходимости `folderId`.
+3. укажи `Folder ID` и `API key` или `IAM token`.
 
 Если Yandex Cloud не нужен, можно его просто не использовать — базовая Linux-версия никак от него не зависит.
 

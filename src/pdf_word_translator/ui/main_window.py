@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import queue
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
@@ -83,6 +84,7 @@ class MainWindow:
     MAX_ZOOM = 8.0
     VISIBLE_RENDER_MARGIN_SCREENS = 1.2
     RENDER_STATUS_DELAY_MS = 90
+    CONTEXT_RESULT_POLL_MS = 80
 
     def __init__(
         self,
@@ -118,6 +120,8 @@ class MainWindow:
         self._visible_render_scheduled = False
         self._last_rendered_zoom: float | None = None
         self._active_context_request_id = 0
+        self._context_result_queue: queue.Queue[tuple[int, ContextTranslationResult]] = queue.Queue()
+        self._context_poll_scheduled = False
         self._catalog_window: tk.Toplevel | None = None
         self._catalog_tree: ttk.Treeview | None = None
         self._catalog_description_var: tk.StringVar | None = None
@@ -125,6 +129,7 @@ class MainWindow:
         self._catalog_specs: dict[str, DictionaryPackSpec] = {}
 
         self._build_window()
+        self._schedule_context_result_poll()
 
     # ------------------------------------------------------------------
     # Window construction and styling
@@ -156,6 +161,11 @@ class MainWindow:
                 named_font.configure(size=ui)
             except tk.TclError:
                 pass
+
+        default_font = tkfont.nametofont("TkDefaultFont")
+        heading_font = tkfont.nametofont("TkHeadingFont")
+        treeview_rowheight = self._treeview_rowheight(default_font.metrics("linespace"))
+
         style.configure("App.TFrame", background="#eef2f7")
         style.configure("Toolbar.TFrame", background="#eef2f7")
         style.configure("Surface.TFrame", background="#ffffff")
@@ -168,6 +178,12 @@ class MainWindow:
         style.configure("Status.TFrame", background="#dbe4ef")
         style.configure("Status.TLabel", background="#dbe4ef", foreground="#334155", font=("TkDefaultFont", ui - 1))
         style.configure("Toolbar.TButton", padding=(10, 5))
+        style.configure("Catalog.Treeview", font=default_font, rowheight=treeview_rowheight)
+        style.configure("Catalog.Treeview.Heading", font=heading_font, padding=(8, 4))
+
+    @staticmethod
+    def _treeview_rowheight(linespace: int) -> int:
+        return max(24, int(linespace) + 10)
 
     def _build_menubar(self) -> None:
         self.menu_bar = tk.Menu(self.root)
@@ -329,6 +345,38 @@ class MainWindow:
         self.root.bind("<Prior>", lambda event: self.previous_page())
         self.root.bind("<Next>", lambda event: self.next_page())
 
+    def _schedule_context_result_poll(self) -> None:
+        if self._context_poll_scheduled:
+            return
+        self._context_poll_scheduled = True
+        try:
+            self.root.after(self.CONTEXT_RESULT_POLL_MS, self._poll_context_results)
+        except tk.TclError:
+            self._context_poll_scheduled = False
+
+    def _poll_context_results(self) -> None:
+        self._context_poll_scheduled = False
+        self._drain_context_result_queue()
+        try:
+            if self.root.winfo_exists():
+                self._schedule_context_result_poll()
+        except tk.TclError:
+            return
+
+    def _drain_context_result_queue(self) -> None:
+        while True:
+            try:
+                request_id, result = self._context_result_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._apply_context_result(request_id, result)
+
+    def _enqueue_context_result(self, request_id: int, result: ContextTranslationResult) -> None:
+        self._context_result_queue.put((request_id, result))
+
+    def _cancel_pending_context_translation(self) -> None:
+        self._active_context_request_id = self.context_service.next_request_id()
+
     # ------------------------------------------------------------------
     # Canvas interaction and lazy rendering
     # ------------------------------------------------------------------
@@ -432,9 +480,9 @@ class MainWindow:
 
     def _redraw_overlays(self) -> None:
         if self.current_highlight_token is not None:
-            self._draw_word_highlight(self.current_highlight_token)
+            self._draw_word_highlight(self.current_highlight_token, scroll_into_view=False)
         if 0 <= self.current_search_index < len(self.current_search_hits):
-            self._draw_search_highlight(self.current_search_hits[self.current_search_index])
+            self._draw_search_highlight(self.current_search_hits[self.current_search_index], scroll_into_view=False)
 
     def _on_mousewheel(self, event: tk.Event) -> None:
         if self.document_service.current_path is None:
@@ -628,7 +676,7 @@ class MainWindow:
                 return layout
         return None
 
-    def _draw_word_highlight(self, token: WordToken) -> None:
+    def _draw_word_highlight(self, token: WordToken, *, scroll_into_view: bool = True) -> None:
         layout = self.page_layouts.get(token.page_index)
         if layout is None:
             return
@@ -643,16 +691,17 @@ class MainWindow:
             outline="#f59e0b",
             width=2,
         )
-        self._scroll_rect_into_view(
-            (
-                layout.left + x0 * self.current_zoom,
-                layout.top + y0 * self.current_zoom,
-                layout.left + x1 * self.current_zoom,
-                layout.top + y1 * self.current_zoom,
+        if scroll_into_view:
+            self._scroll_rect_into_view(
+                (
+                    layout.left + x0 * self.current_zoom,
+                    layout.top + y0 * self.current_zoom,
+                    layout.left + x1 * self.current_zoom,
+                    layout.top + y1 * self.current_zoom,
+                )
             )
-        )
 
-    def _draw_search_highlight(self, hit: SearchHit) -> None:
+    def _draw_search_highlight(self, hit: SearchHit, *, scroll_into_view: bool = True) -> None:
         layout = self.page_layouts.get(hit.page_index)
         if layout is None:
             return
@@ -667,14 +716,15 @@ class MainWindow:
             outline="#22c55e",
             width=2,
         )
-        self._scroll_rect_into_view(
-            (
-                layout.left + x0 * self.current_zoom,
-                layout.top + y0 * self.current_zoom,
-                layout.left + x1 * self.current_zoom,
-                layout.top + y1 * self.current_zoom,
+        if scroll_into_view:
+            self._scroll_rect_into_view(
+                (
+                    layout.left + x0 * self.current_zoom,
+                    layout.top + y0 * self.current_zoom,
+                    layout.left + x1 * self.current_zoom,
+                    layout.top + y1 * self.current_zoom,
+                )
             )
-        )
 
     def _scroll_rect_into_view(self, rect: tuple[float, float, float, float]) -> None:
         """Best-effort scroll so the highlighted rectangle stays visible."""
@@ -773,6 +823,7 @@ class MainWindow:
         return f"Пример: {src}"
 
     def _clear_panel(self) -> None:
+        self._cancel_pending_context_translation()
         self.lookup_meta_var.set("Нажмите на слово в документе — здесь появится краткий перевод.")
         self.best_translation_var.set("—")
         self.example_var.set(self._provider_idle_text())
@@ -783,14 +834,17 @@ class MainWindow:
         context_text = view_model.context.text.strip()
         provider_id = self.context_service.active_provider_id()
         if provider_id == "disabled":
+            self._cancel_pending_context_translation()
+            self.example_var.set(self._provider_idle_text())
             return
         self.example_var.set(f"{self.context_service.provider_name()}: перевод контекста…")
 
         def callback(request_id: int, result: ContextTranslationResult) -> None:
-            self.root.after(0, self._apply_context_result, request_id, result)
+            self._enqueue_context_result(request_id, result)
 
         request_id = self.context_service.next_request_id()
-        self._active_context_request_id = self.context_service.translate_async(
+        self._active_context_request_id = request_id
+        self.context_service.translate_async(
             context_text,
             self.settings.direction,
             callback,
@@ -946,7 +1000,7 @@ class MainWindow:
         top.pack(fill=tk.BOTH, expand=True)
 
         columns = ("title", "direction", "category", "source")
-        tree = ttk.Treeview(top, columns=columns, show="headings", height=10)
+        tree = ttk.Treeview(top, columns=columns, show="headings", height=10, style="Catalog.Treeview")
         tree.heading("title", text="Пакет")
         tree.heading("direction", text="Направление")
         tree.heading("category", text="Категория")
@@ -1068,6 +1122,7 @@ class MainWindow:
         self.direction_var.set(self.settings.direction)
         self.direction_button.configure(text=self._direction_display(self.settings.direction))
         self._refresh_dictionary_footer()
+        self._cancel_pending_context_translation()
         self._update_status(f"Направление перевода: {self._direction_display(self.settings.direction)}")
         self._retranslate_current_selection()
 
@@ -1078,6 +1133,7 @@ class MainWindow:
         self.settings_store.save(self.settings)
         self.context_service.update_settings(self.settings)
         self.provider_var.set(self.settings.context_provider_id)
+        self._cancel_pending_context_translation()
         self._update_status(f"Контекстный провайдер: {self.context_service.provider_name()}")
         if self.current_view_model is not None:
             self._populate_panel(self.current_view_model)
@@ -1120,7 +1176,7 @@ class MainWindow:
             folder_var = tk.StringVar(value=self.settings.yandex_folder_id)
             api_var = tk.StringVar(value=self.settings.yandex_api_key)
             iam_var = tk.StringVar(value=self.settings.yandex_iam_token)
-            ttk.Label(frame, text="Folder ID (обязательно для Bearer token, не нужен для service-account API key):").pack(anchor="w", pady=(12, 2))
+            ttk.Label(frame, text="Folder ID (обязательно для Translate API):").pack(anchor="w", pady=(12, 2))
             ttk.Entry(frame, textvariable=folder_var, width=64).pack(fill=tk.X)
             ttk.Label(frame, text="API key:").pack(anchor="w", pady=(10, 2))
             ttk.Entry(frame, textvariable=api_var, width=64, show="*").pack(fill=tk.X)

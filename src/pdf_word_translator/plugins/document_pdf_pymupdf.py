@@ -23,6 +23,7 @@ SENTENCE_END_RE = re.compile(r"[.!?;:]$")
 class _PageCache:
     tokens: List[WordToken]
     sentence_words: List[Tuple[str, WordToken]]
+    token_indexes: Dict[str, int]
 
 
 class PyMuPdfDocumentSession(DocumentSession):
@@ -68,8 +69,7 @@ class PyMuPdfDocumentSession(DocumentSession):
 
     def get_sentence_for_token(self, token: WordToken) -> DocumentSentence:
         page_cache = self._ensure_page_cache(token.page_index)
-        ordered_tokens = [item[1] for item in page_cache.sentence_words]
-        token_index = next((idx for idx, current in enumerate(ordered_tokens) if current.token_id == token.token_id), None)
+        token_index = page_cache.token_indexes.get(token.token_id)
         if token_index is None:
             return DocumentSentence(page_index=token.page_index, text=token.text)
         left = token_index
@@ -112,6 +112,7 @@ class PyMuPdfDocumentSession(DocumentSession):
         raw_words = page.get_text("words", sort=True)
         tokens: List[WordToken] = []
         sentence_words: List[Tuple[str, WordToken]] = []
+        token_indexes: Dict[str, int] = {}
         running_word_no = 0
         for x0, y0, x1, y1, text, block_no, line_no, word_no in raw_words:
             split_tokens = split_token_rect(
@@ -124,11 +125,12 @@ class PyMuPdfDocumentSession(DocumentSession):
                 word_no=running_word_no,
             )
             for token in split_tokens:
+                token_indexes[token.token_id] = len(sentence_words)
                 tokens.append(token)
                 sentence_words.append((token.text, token))
                 running_word_no += 1
 
-        cache = _PageCache(tokens=tokens, sentence_words=sentence_words)
+        cache = _PageCache(tokens=tokens, sentence_words=sentence_words, token_indexes=token_indexes)
         self._page_cache[page_index] = cache
         return cache
 

@@ -167,14 +167,20 @@ class YandexCloudContextProvider(ContextTranslationProvider):
                 status="error",
                 text="Укажите API-ключ или IAM token Yandex Cloud в настройках провайдера.",
             )
+        if not self._folder_id:
+            return ContextTranslationResult(
+                provider_id=self.provider_id(),
+                provider_name=self.display_name(),
+                status="error",
+                text="Укажите Folder ID Yandex Cloud в настройках провайдера.",
+            )
         payload = {
+            "folderId": self._folder_id,
             "texts": [text],
             "sourceLanguageCode": direction_source_lang(direction),
             "targetLanguageCode": direction_target_lang(direction),
             "format": "PLAIN_TEXT",
         }
-        if self._folder_id:
-            payload["folderId"] = self._folder_id
         request = urllib.request.Request(
             "https://translate.api.cloud.yandex.net/translate/v2/translate",
             data=json.dumps(payload).encode("utf-8"),
