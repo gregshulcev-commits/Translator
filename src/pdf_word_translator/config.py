@@ -11,11 +11,13 @@ import os
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-# ``src/pdf_word_translator`` -> project root.
 PROJECT_ROOT = PACKAGE_ROOT.parent.parent
 DATA_ROOT = PROJECT_ROOT / "data"
+BUNDLED_PACKS_DIR = DATA_ROOT / "packs"
 DEFAULT_STARTER_CSV = DATA_ROOT / "starter_dictionary.csv"
 DEFAULT_STARTER_DB = DATA_ROOT / "starter_dictionary.sqlite"
+DEFAULT_STARTER_RU_EN_CSV = DATA_ROOT / "starter_dictionary_ru_en.csv"
+DEFAULT_STARTER_RU_EN_DB = DATA_ROOT / "starter_dictionary_ru_en.sqlite"
 
 
 def _xdg_path(env_name: str, fallback: Path) -> Path:
@@ -36,8 +38,13 @@ SETTINGS_FILE = RUNTIME_DATA_DIR / "settings.json"
 class AppConfig:
     """Resolved configuration for the running application."""
 
+    project_root: Path = PROJECT_ROOT
+    data_root: Path = DATA_ROOT
+    bundled_packs_dir: Path = BUNDLED_PACKS_DIR
     starter_dictionary_csv: Path = DEFAULT_STARTER_CSV
     starter_dictionary_db: Path = DEFAULT_STARTER_DB
+    starter_dictionary_ru_en_csv: Path = DEFAULT_STARTER_RU_EN_CSV
+    starter_dictionary_ru_en_db: Path = DEFAULT_STARTER_RU_EN_DB
     runtime_data_dir: Path = RUNTIME_DATA_DIR
     runtime_cache_dir: Path = RUNTIME_CACHE_DIR
     runtime_log_dir: Path = RUNTIME_LOG_DIR

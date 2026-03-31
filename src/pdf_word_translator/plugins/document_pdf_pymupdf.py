@@ -1,12 +1,4 @@
-"""PDF provider implemented with PyMuPDF.
-
-This plugin is responsible for:
-- opening PDF files with a text layer,
-- rendering pages for the UI,
-- exposing word tokens with coordinates,
-- finding the clicked word,
-- collecting search hits.
-"""
+"""PDF provider implemented with PyMuPDF."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,12 +7,12 @@ from typing import Dict, List, Tuple
 import logging
 import re
 
-import fitz  # PyMuPDF
+import fitz
 from PIL import Image
 
 from ..models import DocumentSentence, SearchHit, WordToken
 from ..plugin_api import DocumentPlugin, DocumentSession
-from ..utils.text_normalizer import EnglishWordNormalizer
+from ..utils.token_splitter import split_token_rect
 
 
 LOGGER = logging.getLogger(__name__)
@@ -42,6 +34,10 @@ class PyMuPdfDocumentSession(DocumentSession):
     def page_count(self) -> int:
         return self._doc.page_count
 
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        rect = self._doc[page_index].rect
+        return float(rect.width), float(rect.height)
+
     def render_page(self, page_index: int, zoom: float):
         page = self._doc[page_index]
         matrix = fitz.Matrix(zoom, zoom)
@@ -55,13 +51,9 @@ class PyMuPdfDocumentSession(DocumentSession):
     def find_token_at(self, page_index: int, x: float, y: float) -> WordToken | None:
         tokens = self.get_tokens(page_index)
         point = fitz.Point(x, y)
-
-        # First pass: exact containment.
         for token in tokens:
             if fitz.Rect(token.rect).contains(point):
                 return token
-
-        # Second pass: nearest token within a small tolerance.
         nearest: WordToken | None = None
         nearest_distance = float("inf")
         for token in tokens:
@@ -80,14 +72,12 @@ class PyMuPdfDocumentSession(DocumentSession):
         token_index = next((idx for idx, current in enumerate(ordered_tokens) if current.token_id == token.token_id), None)
         if token_index is None:
             return DocumentSentence(page_index=token.page_index, text=token.text)
-
         left = token_index
         while left > 0:
             previous_text = page_cache.sentence_words[left - 1][0]
             if SENTENCE_END_RE.search(previous_text):
                 break
             left -= 1
-
         right = token_index
         while right + 1 < len(page_cache.sentence_words):
             current_text = page_cache.sentence_words[right][0]
@@ -96,10 +86,8 @@ class PyMuPdfDocumentSession(DocumentSession):
             right += 1
             if SENTENCE_END_RE.search(page_cache.sentence_words[right][0]):
                 break
-
         parts = [page_cache.sentence_words[idx][0] for idx in range(left, right + 1)]
-        sentence = self._join_words(parts)
-        return DocumentSentence(page_index=token.page_index, text=sentence)
+        return DocumentSentence(page_index=token.page_index, text=self._join_words(parts))
 
     def search(self, query: str) -> List[SearchHit]:
         results: List[SearchHit] = []
@@ -124,21 +112,21 @@ class PyMuPdfDocumentSession(DocumentSession):
         raw_words = page.get_text("words", sort=True)
         tokens: List[WordToken] = []
         sentence_words: List[Tuple[str, WordToken]] = []
-
+        running_word_no = 0
         for x0, y0, x1, y1, text, block_no, line_no, word_no in raw_words:
-            normalized = EnglishWordNormalizer.normalize(text)
-            token = WordToken(
-                token_id=f"p{page_index}-b{block_no}-l{line_no}-w{word_no}",
-                text=text,
-                normalized_text=normalized,
+            split_tokens = split_token_rect(
+                text,
+                (x0, y0, x1, y1),
+                token_id_prefix=f"p{page_index}-b{block_no}-l{line_no}-w{word_no}",
                 page_index=page_index,
-                rect=(x0, y0, x1, y1),
                 block_no=block_no,
                 line_no=line_no,
-                word_no=word_no,
+                word_no=running_word_no,
             )
-            tokens.append(token)
-            sentence_words.append((text, token))
+            for token in split_tokens:
+                tokens.append(token)
+                sentence_words.append((token.text, token))
+                running_word_no += 1
 
         cache = _PageCache(tokens=tokens, sentence_words=sentence_words)
         self._page_cache[page_index] = cache

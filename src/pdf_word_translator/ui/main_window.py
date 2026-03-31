@@ -1,4 +1,10 @@
-"""Tkinter main window for the offline document word translator MVP."""
+"""Tkinter main window for the offline document word translator MVP.
+
+The UI deliberately keeps a small, readable footprint: the document remains the
+main focus, while the translation help is shown in a compact panel at the
+bottom. Rendering is lazy per page, which keeps zooming and scrolling usable on
+large multi-page PDFs.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,17 +13,30 @@ import logging
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
+import webbrowser
+
 from PIL import ImageTk
 
 from ..config import AppConfig
-from ..models import SearchHit, WordToken
+from ..models import (
+    EN_RU,
+    RU_EN,
+    ContextTranslationResult,
+    SearchHit,
+    TranslationDirection,
+    WordToken,
+)
 from ..plugin_loader import PluginLoader
+from ..providers.context_providers import ContextTranslationService
 from ..services.dictionary_service import DictionaryService
 from ..services.document_service import DocumentService
 from ..services.translation_workflow import TranslationWorkflow, TranslationViewModel
+from ..utils.dictionary_catalog import DictionaryPackSpec
 from ..utils.dictionary_installer import (
+    available_catalog_items,
     import_csv_pack,
     import_freedict_pack,
+    install_catalog_pack,
     install_default_pack,
     install_sqlite_pack,
 )
@@ -27,15 +46,19 @@ from ..utils.settings_store import SettingsStore, UiSettings
 LOGGER = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class CanvasPageLayout:
-    """Placement of one rendered page inside the scrolling canvas."""
+    """Placement and canvas item IDs for one logical page."""
 
     page_index: int
     left: int
     top: int
     width: int
     height: int
+    shadow_item: int | None = None
+    background_item: int | None = None
+    label_item: int | None = None
+    image_item: int | None = None
 
     @property
     def right(self) -> int:
@@ -50,14 +73,16 @@ class MainWindow:
     """Main application window.
 
     The class keeps the UI logic together while relying on services for all
-    document and dictionary operations. That separation makes the click workflow
-    easy to test outside the GUI.
+    document, dictionary and context-translation operations. That separation
+    keeps the click workflow deterministic and unit-test friendly.
     """
 
     PAGE_MARGIN = 24
     PAGE_GAP = 22
     MIN_ZOOM = 0.5
-    MAX_ZOOM = 6.0
+    MAX_ZOOM = 8.0
+    VISIBLE_RENDER_MARGIN_SCREENS = 1.2
+    RENDER_STATUS_DELAY_MS = 90
 
     def __init__(
         self,
@@ -77,20 +102,33 @@ class MainWindow:
         self.workflow = workflow
         self.settings_store = settings_store
         self.settings = settings_store.load().normalized()
+        self.context_service = ContextTranslationService(self.settings)
 
         self.current_page_index = 0
         self.current_zoom = 1.20
-        self.page_photos: list[ImageTk.PhotoImage] = []
+        self.page_photos: dict[int, ImageTk.PhotoImage] = {}
         self.page_layouts: dict[int, CanvasPageLayout] = {}
         self.current_highlight_token: WordToken | None = None
         self.current_search_hits: list[SearchHit] = []
         self.current_search_index = -1
+        self.current_view_model: TranslationViewModel | None = None
         self.search_rect_id: int | None = None
         self.word_rect_id: int | None = None
         self._viewport_update_scheduled = False
+        self._visible_render_scheduled = False
+        self._last_rendered_zoom: float | None = None
+        self._active_context_request_id = 0
+        self._catalog_window: tk.Toplevel | None = None
+        self._catalog_tree: ttk.Treeview | None = None
+        self._catalog_description_var: tk.StringVar | None = None
+        self._catalog_source_var: tk.StringVar | None = None
+        self._catalog_specs: dict[str, DictionaryPackSpec] = {}
 
         self._build_window()
 
+    # ------------------------------------------------------------------
+    # Window construction and styling
+    # ------------------------------------------------------------------
     def _build_window(self) -> None:
         self.root.title("Офлайн переводчик документов — MVP")
         self.root.geometry("1420x940")
@@ -132,31 +170,57 @@ class MainWindow:
         style.configure("Toolbar.TButton", padding=(10, 5))
 
     def _build_menubar(self) -> None:
-        menu = tk.Menu(self.root)
-        self.root.configure(menu=menu)
+        self.menu_bar = tk.Menu(self.root)
+        self.root.configure(menu=self.menu_bar)
 
-        file_menu = tk.Menu(menu)
+        file_menu = tk.Menu(self.menu_bar)
         file_menu.add_command(label="Открыть документ…", command=self.open_document_dialog, accelerator="Ctrl+O")
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.root.destroy)
-        menu.add_cascade(label="Файл", menu=file_menu)
+        self.menu_bar.add_cascade(label="Файл", menu=file_menu)
 
-        dictionaries_menu = tk.Menu(menu)
-        dictionaries_menu.add_command(label="Скачать общий FreeDict EN→RU", command=self.install_default_dictionary_pack)
-        dictionaries_menu.add_separator()
-        dictionaries_menu.add_command(label="Подключить SQLite-словарь…", command=self.install_sqlite_dictionary_pack)
-        dictionaries_menu.add_command(label="Импортировать CSV-словарь…", command=self.import_csv_dictionary_pack)
-        dictionaries_menu.add_command(label="Импортировать FreeDict TEI…", command=self.import_freedict_dictionary_pack)
-        menu.add_cascade(label="Словари", menu=dictionaries_menu)
+        self.dictionaries_menu = tk.Menu(self.menu_bar)
+        self.dictionaries_menu.add_command(label="Каталог словарей…", command=self.show_dictionary_catalog)
+        self.dictionaries_menu.add_command(
+            label="Установить FreeDict для текущего направления",
+            command=self.install_default_dictionary_pack,
+        )
+        self.dictionaries_menu.add_separator()
+        self.dictionaries_menu.add_command(label="Подключить SQLite-словарь…", command=self.install_sqlite_dictionary_pack)
+        self.dictionaries_menu.add_command(label="Импортировать CSV-словарь…", command=self.import_csv_dictionary_pack)
+        self.dictionaries_menu.add_command(label="Импортировать FreeDict TEI…", command=self.import_freedict_dictionary_pack)
+        self.menu_bar.add_cascade(label="Словари", menu=self.dictionaries_menu)
 
-        view_menu = tk.Menu(menu)
-        view_menu.add_command(label="Интерфейс крупнее", command=lambda: self.change_ui_font_size(1))
-        view_menu.add_command(label="Интерфейс мельче", command=lambda: self.change_ui_font_size(-1))
+        self.translate_menu = tk.Menu(self.menu_bar)
+        direction_menu = tk.Menu(self.translate_menu)
+        self.direction_var = tk.StringVar(value=self.settings.direction)
+        direction_menu.add_radiobutton(label="EN → RU", value=EN_RU, variable=self.direction_var, command=self.on_direction_menu_change)
+        direction_menu.add_radiobutton(label="RU → EN", value=RU_EN, variable=self.direction_var, command=self.on_direction_menu_change)
+        self.translate_menu.add_cascade(label="Направление", menu=direction_menu)
+
+        provider_menu = tk.Menu(self.translate_menu)
+        self.provider_var = tk.StringVar(value=self.settings.context_provider_id)
+        for choice in self.context_service.provider_choices():
+            provider_menu.add_radiobutton(
+                label=choice.display_name,
+                value=choice.provider_id,
+                variable=self.provider_var,
+                command=self.on_provider_menu_change,
+            )
+        self.translate_menu.add_cascade(label="Контекстный перевод", menu=provider_menu)
+        self.translate_menu.add_command(label="Настроить текущий провайдер…", command=self.show_provider_settings_dialog)
+        self.translate_menu.add_command(label="Как установить Argos…", command=self.show_argos_installation_help)
+        self.menu_bar.add_cascade(label="Перевод", menu=self.translate_menu)
+
+        view_menu = tk.Menu(self.menu_bar)
+        view_menu.add_command(label="A+ Увеличить интерфейс", command=lambda: self.change_ui_font_size(1))
+        view_menu.add_command(label="A− Уменьшить интерфейс", command=lambda: self.change_ui_font_size(-1))
         view_menu.add_command(label="Сбросить размер интерфейса", command=self.reset_ui_font_size)
-        menu.add_cascade(label="Вид", menu=view_menu)
+        self.menu_bar.add_cascade(label="Вид", menu=view_menu)
 
         self.dictionary_context_menu = tk.Menu(self.root, tearoff=False)
-        self.dictionary_context_menu.add_command(label="Скачать общий FreeDict EN→RU", command=self.install_default_dictionary_pack)
+        self.dictionary_context_menu.add_command(label="Каталог словарей…", command=self.show_dictionary_catalog)
+        self.dictionary_context_menu.add_separator()
         self.dictionary_context_menu.add_command(label="Подключить SQLite-словарь…", command=self.install_sqlite_dictionary_pack)
         self.dictionary_context_menu.add_command(label="Импортировать CSV-словарь…", command=self.import_csv_dictionary_pack)
         self.dictionary_context_menu.add_command(label="Импортировать FreeDict TEI…", command=self.import_freedict_dictionary_pack)
@@ -176,7 +240,15 @@ class MainWindow:
         ttk.Button(toolbar, text="+", command=lambda: self.change_zoom(0.1), width=3).pack(side=tk.LEFT, padx=(4, 10))
 
         self.zoom_label = ttk.Label(toolbar, text="120%")
-        self.zoom_label.pack(side=tk.LEFT, padx=(0, 16))
+        self.zoom_label.pack(side=tk.LEFT, padx=(0, 12))
+
+        self.direction_button = ttk.Button(toolbar, text=self._direction_display(self.settings.direction), command=self.toggle_direction)
+        self.direction_button.pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Button(toolbar, text="A−", command=lambda: self.change_ui_font_size(-1), width=4).pack(side=tk.LEFT)
+        ttk.Button(toolbar, text="A+", command=lambda: self.change_ui_font_size(1), width=4).pack(side=tk.LEFT, padx=(4, 12))
+
+        ttk.Button(toolbar, text="Словари", command=self.show_dictionary_catalog).pack(side=tk.LEFT, padx=(0, 12))
 
         ttk.Label(toolbar, text="Поиск:").pack(side=tk.LEFT)
         self.search_var = tk.StringVar()
@@ -222,11 +294,9 @@ class MainWindow:
 
         self.lookup_meta_var = tk.StringVar(value="Нажмите на слово в документе — здесь появится краткий перевод.")
         self.best_translation_var = tk.StringVar(value="—")
-        self.example_var = tk.StringVar(value="Пример: —")
+        self.example_var = tk.StringVar(value="Контекстный перевод / пример: —")
         self.alternatives_var = tk.StringVar(value="Варианты: —")
-        self.dictionary_footer_var = tk.StringVar(
-            value=f"Словари: {self.dictionary_service.pack_count()} пак. · {self.dictionary_service.entry_count()} статей"
-        )
+        self.dictionary_footer_var = tk.StringVar(value=self._dictionary_footer_text())
 
         self.meta_label = ttk.Label(parent, textvariable=self.lookup_meta_var, style="Meta.TLabel", wraplength=1200, justify=tk.LEFT)
         self.meta_label.pack(anchor="w", pady=(6, 6), fill=tk.X)
@@ -259,6 +329,9 @@ class MainWindow:
         self.root.bind("<Prior>", lambda event: self.previous_page())
         self.root.bind("<Next>", lambda event: self.next_page())
 
+    # ------------------------------------------------------------------
+    # Canvas interaction and lazy rendering
+    # ------------------------------------------------------------------
     def _bind_canvas_mousewheel(self, _event: tk.Event) -> None:
         self.root.bind_all("<MouseWheel>", self._on_mousewheel)
         self.root.bind_all("<Button-4>", self._on_mousewheel)
@@ -271,20 +344,24 @@ class MainWindow:
 
     def _on_canvas_yscroll(self, first: str, last: str) -> None:
         self.yscroll.set(first, last)
-        if not self._viewport_update_scheduled:
-            self._viewport_update_scheduled = True
-            self.root.after_idle(self._update_viewport_page_index)
+        self._schedule_viewport_update()
 
     def _on_canvas_configure(self, _event: tk.Event) -> None:
         wraplength = max(400, self.canvas.winfo_width() - 48)
         for widget in (self.meta_label, self.best_label, self.example_label, self.alternatives_label):
             widget.configure(wraplength=wraplength)
         self._schedule_viewport_update()
+        self._schedule_visible_render()
 
     def _schedule_viewport_update(self) -> None:
         if not self._viewport_update_scheduled:
             self._viewport_update_scheduled = True
             self.root.after_idle(self._update_viewport_page_index)
+
+    def _schedule_visible_render(self) -> None:
+        if not self._visible_render_scheduled:
+            self._visible_render_scheduled = True
+            self.root.after_idle(self._refresh_visible_pages)
 
     def _update_viewport_page_index(self) -> None:
         self._viewport_update_scheduled = False
@@ -300,6 +377,64 @@ class MainWindow:
                 chosen_layout = layout
         self.current_page_index = chosen_layout.page_index
         self.page_label.configure(text=f"Стр. {self.current_page_index + 1} / {self.document_service.page_count()}")
+        self._schedule_visible_render()
+
+    def _visible_page_indexes(self) -> list[int]:
+        view_height = max(1, self.canvas.winfo_height())
+        extra_margin = int(view_height * self.VISIBLE_RENDER_MARGIN_SCREENS)
+        top = self.canvas.canvasy(0) - extra_margin
+        bottom = self.canvas.canvasy(view_height) + extra_margin
+        indexes: list[int] = []
+        for page_index, layout in self.page_layouts.items():
+            if layout.bottom >= top and layout.top <= bottom:
+                indexes.append(page_index)
+        return indexes
+
+    def _refresh_visible_pages(self) -> None:
+        self._visible_render_scheduled = False
+        if self.document_service.current_path is None or not self.page_layouts:
+            return
+
+        wanted = set(self._visible_page_indexes())
+        for page_index in list(self.page_photos):
+            if page_index not in wanted:
+                self._unload_page_image(page_index)
+
+        rendered_any = False
+        for page_index in sorted(wanted):
+            if page_index in self.page_photos:
+                continue
+            self._render_one_page(page_index)
+            rendered_any = True
+
+        if rendered_any:
+            self._redraw_overlays()
+
+    def _render_one_page(self, page_index: int) -> None:
+        layout = self.page_layouts.get(page_index)
+        if layout is None:
+            return
+        rendered = self.document_service.render_page(page_index, self.current_zoom)
+        photo = ImageTk.PhotoImage(rendered.image)
+        self.page_photos[page_index] = photo
+        if layout.image_item is None:
+            layout.image_item = self.canvas.create_image(layout.left, layout.top, image=photo, anchor="nw")
+        else:
+            self.canvas.itemconfigure(layout.image_item, image=photo)
+        self.canvas.tag_raise(layout.label_item)
+
+    def _unload_page_image(self, page_index: int) -> None:
+        layout = self.page_layouts.get(page_index)
+        if layout is not None and layout.image_item is not None:
+            self.canvas.delete(layout.image_item)
+            layout.image_item = None
+        self.page_photos.pop(page_index, None)
+
+    def _redraw_overlays(self) -> None:
+        if self.current_highlight_token is not None:
+            self._draw_word_highlight(self.current_highlight_token)
+        if 0 <= self.current_search_index < len(self.current_search_hits):
+            self._draw_search_highlight(self.current_search_hits[self.current_search_index])
 
     def _on_mousewheel(self, event: tk.Event) -> None:
         if self.document_service.current_path is None:
@@ -341,11 +476,11 @@ class MainWindow:
             ("Все файлы", "*.*"),
         ]
 
+    # ------------------------------------------------------------------
+    # Document opening, scrolling and zooming
+    # ------------------------------------------------------------------
     def open_document_dialog(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Выберите документ",
-            filetypes=self._document_filetypes(),
-        )
+        path = filedialog.askopenfilename(title="Выберите документ", filetypes=self._document_filetypes())
         if path:
             self.open_document_path(Path(path))
 
@@ -356,6 +491,7 @@ class MainWindow:
             self.current_highlight_token = None
             self.current_search_hits = []
             self.current_search_index = -1
+            self.current_view_model = None
             self.search_status_label.configure(text="")
             self.document_service.clear_cache()
             self._clear_panel()
@@ -384,30 +520,24 @@ class MainWindow:
         max_width = 0
         current_top = self.PAGE_MARGIN
         for page_index in range(total_pages):
-            rendered = self.document_service.render_page(page_index, self.current_zoom)
-            photo = ImageTk.PhotoImage(rendered.image)
-            self.page_photos.append(photo)
-
+            width_doc, height_doc = self.document_service.page_dimensions(page_index)
+            width = max(1, int(round(width_doc * self.current_zoom)))
+            height = max(1, int(round(height_doc * self.current_zoom)))
             left = self.PAGE_MARGIN
             top = current_top
-            width = rendered.image.width
-            height = rendered.image.height
-            self.page_layouts[page_index] = CanvasPageLayout(page_index=page_index, left=left, top=top, width=width, height=height)
-
-            self.canvas.create_rectangle(left - 3, top - 3, left + width + 3, top + height + 3, fill="#d8e0ea", outline="")
-            self.canvas.create_image(left, top, image=photo, anchor="nw")
-            self.canvas.create_text(left + 10, top - 14, text=f"Стр. {page_index + 1}", fill="#cbd5e1", anchor="w")
-
+            layout = CanvasPageLayout(page_index=page_index, left=left, top=top, width=width, height=height)
+            layout.shadow_item = self.canvas.create_rectangle(left - 3, top - 3, left + width + 3, top + height + 3, fill="#d8e0ea", outline="")
+            layout.background_item = self.canvas.create_rectangle(left, top, left + width, top + height, fill="#ffffff", outline="")
+            layout.label_item = self.canvas.create_text(left + 10, top - 14, text=f"Стр. {page_index + 1}", fill="#cbd5e1", anchor="w")
+            self.page_layouts[page_index] = layout
             current_top += height + self.PAGE_GAP
             max_width = max(max_width, width)
 
         self.canvas.configure(scrollregion=(0, 0, max_width + self.PAGE_MARGIN * 2, current_top + self.PAGE_MARGIN))
         self.zoom_label.configure(text=f"{int(self.current_zoom * 100)}%")
-
-        if self.current_highlight_token is not None:
-            self._draw_word_highlight(self.current_highlight_token)
-        if 0 <= self.current_search_index < len(self.current_search_hits):
-            self._draw_search_highlight(self.current_search_hits[self.current_search_index])
+        self.direction_var.set(self.settings.direction)
+        self.direction_button.configure(text=self._direction_display(self.settings.direction))
+        self._last_rendered_zoom = self.current_zoom
 
         if anchor_doc_point is not None and anchor_widget is not None:
             self._scroll_doc_point_to_widget(anchor_doc_point, anchor_widget)
@@ -415,6 +545,7 @@ class MainWindow:
             self.scroll_to_page(focus_page)
         else:
             self._schedule_viewport_update()
+            self._schedule_visible_render()
 
     def scroll_to_page(self, page_index: int) -> None:
         layout = self.page_layouts.get(page_index)
@@ -456,10 +587,15 @@ class MainWindow:
                 page_y = (anchor_canvas[1] - layout.top) / self.current_zoom
                 anchor_doc_point = (layout.page_index, page_x, page_y)
 
+        previous_zoom = self.current_zoom
         self.current_zoom = new_zoom
         self.document_service.clear_cache()
         self.render_document(focus_page=self.current_page_index, anchor_doc_point=anchor_doc_point, anchor_widget=anchor_widget)
+        self._update_status(f"Масштаб: {int(self.current_zoom * 100)}% (было {int(previous_zoom * 100)}%)")
 
+    # ------------------------------------------------------------------
+    # Click-to-translate workflow
+    # ------------------------------------------------------------------
     def on_canvas_click(self, event: tk.Event) -> None:
         if self.document_service.current_path is None:
             return
@@ -473,15 +609,17 @@ class MainWindow:
         self.process_click_at_page_coords(layout.page_index, page_x, page_y)
 
     def process_click_at_page_coords(self, page_index: int, page_x: float, page_y: float) -> TranslationViewModel | None:
-        view_model = self.workflow.translate_point(page_index, page_x, page_y)
+        view_model = self.workflow.translate_point(page_index, page_x, page_y, direction=self.settings.direction)
         if view_model is None:
             self._update_status("Слово под курсором не найдено.")
             return None
         self.current_page_index = page_index
         self.current_highlight_token = view_model.token
+        self.current_view_model = view_model
         self._draw_word_highlight(view_model.token)
         self._populate_panel(view_model)
         self._update_status(f"Выбрано слово: {view_model.token.text}")
+        self._start_context_translation(view_model)
         return view_model
 
     def _page_layout_at_canvas_coords(self, canvas_x: float, canvas_y: float) -> CanvasPageLayout | None:
@@ -593,7 +731,11 @@ class MainWindow:
         self.canvas.xview_moveto((bounded_left - sx0) / total_width)
         self.canvas.yview_moveto((bounded_top - sy0) / total_height)
         self._schedule_viewport_update()
+        self._schedule_visible_render()
 
+    # ------------------------------------------------------------------
+    # Compact translation panel and context provider integration
+    # ------------------------------------------------------------------
     def _populate_panel(self, view_model: TranslationViewModel) -> None:
         token = view_model.token
         if view_model.lookup.found and view_model.lookup.entry is not None:
@@ -606,32 +748,74 @@ class MainWindow:
                 meta = f"{meta} · /{entry.transcription}/"
             self.lookup_meta_var.set(meta)
             self.best_translation_var.set(entry.best_translation or "—")
-            example_text = self._dictionary_example(entry) or view_model.context.text or "—"
-            self.example_var.set(example_text)
+            self.example_var.set(self._dictionary_example(entry) or self._provider_idle_text())
             alternatives = ", ".join(entry.alternative_translations[:8]) or "—"
             self.alternatives_var.set(f"Ещё варианты: {alternatives}")
         else:
             self.lookup_meta_var.set(token.text)
             self.best_translation_var.set("Перевод не найден")
-            self.example_var.set(view_model.context.text or "—")
+            self.example_var.set(self._provider_idle_text())
             forms = ", ".join(view_model.lookup.candidate_forms[:8]) if view_model.lookup.candidate_forms else "—"
             self.alternatives_var.set(f"Проверенные формы: {forms}")
+
+    def _provider_idle_text(self) -> str:
+        provider_id = self.context_service.active_provider_id()
+        if provider_id == "disabled":
+            return "Контекстный перевод отключён."
+        return f"{self.context_service.provider_name()}: готов к переводу контекста."
 
     def _dictionary_example(self, entry) -> str:
         if not entry.examples:
             return ""
         src, dst = entry.examples[0]
         if dst:
-            return f"{src} → {dst}"
-        return src
+            return f"Пример: {src} → {dst}"
+        return f"Пример: {src}"
 
     def _clear_panel(self) -> None:
         self.lookup_meta_var.set("Нажмите на слово в документе — здесь появится краткий перевод.")
         self.best_translation_var.set("—")
-        self.example_var.set("Пример: —")
+        self.example_var.set(self._provider_idle_text())
         self.alternatives_var.set("Варианты: —")
         self._refresh_dictionary_footer()
 
+    def _start_context_translation(self, view_model: TranslationViewModel) -> None:
+        context_text = view_model.context.text.strip()
+        provider_id = self.context_service.active_provider_id()
+        if provider_id == "disabled":
+            return
+        self.example_var.set(f"{self.context_service.provider_name()}: перевод контекста…")
+
+        def callback(request_id: int, result: ContextTranslationResult) -> None:
+            self.root.after(0, self._apply_context_result, request_id, result)
+
+        request_id = self.context_service.next_request_id()
+        self._active_context_request_id = self.context_service.translate_async(
+            context_text,
+            self.settings.direction,
+            callback,
+            request_id=request_id,
+        )
+
+    def _apply_context_result(self, request_id: int, result: ContextTranslationResult) -> None:
+        if request_id != self._active_context_request_id:
+            return
+        if result.ok:
+            self.example_var.set(self._compact_text(result.text, limit=260))
+            return
+        message = result.text or result.error or "Контекстный перевод не вернул результат."
+        self.example_var.set(self._compact_text(f"{result.provider_name}: {message}", limit=260))
+
+    @staticmethod
+    def _compact_text(value: str, *, limit: int = 260) -> str:
+        cleaned = " ".join(value.split())
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[: limit - 1].rstrip() + "…"
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
     def execute_search(self) -> None:
         if self.document_service.current_path is None:
             return
@@ -661,10 +845,17 @@ class MainWindow:
         self._draw_search_highlight(hit)
         self._update_status(f"Поиск: {hit.preview}")
 
-    def _refresh_dictionary_footer(self) -> None:
-        self.dictionary_footer_var.set(
-            f"Словари: {self.dictionary_service.pack_count()} пак. · {self.dictionary_service.entry_count()} статей"
+    # ------------------------------------------------------------------
+    # Dictionary management
+    # ------------------------------------------------------------------
+    def _dictionary_footer_text(self) -> str:
+        return (
+            f"Словари: {self.dictionary_service.pack_count()} пак. · "
+            f"{self.dictionary_service.entry_count()} статей · направление: {self._direction_display(self.settings.direction)}"
         )
+
+    def _refresh_dictionary_footer(self) -> None:
+        self.dictionary_footer_var.set(self._dictionary_footer_text())
 
     def _reload_dictionary_plugin(self) -> None:
         self.dictionary_service.replace_plugin(self.plugin_loader.create_dictionary_plugin())
@@ -683,11 +874,15 @@ class MainWindow:
             messagebox.showerror("Ошибка словаря", str(exc))
         finally:
             self.root.configure(cursor="")
+            if self._catalog_window is not None and self._catalog_window.winfo_exists():
+                self._populate_dictionary_catalog_tree()
 
     def install_default_dictionary_pack(self) -> None:
+        direction = self.settings.direction
+        label = f"Установлен FreeDict {self._direction_display(direction)}"
         self._run_dictionary_task(
-            "Установлен общий словарь",
-            lambda: install_default_pack(self.config.runtime_dictionary_dir, self.config.runtime_download_dir),
+            label,
+            lambda: install_default_pack(self.config.runtime_dictionary_dir, self.config.runtime_download_dir, direction=direction),
         )
 
     def install_sqlite_dictionary_pack(self) -> None:
@@ -711,7 +906,7 @@ class MainWindow:
             return
         self._run_dictionary_task(
             "Импортирован CSV-словарь",
-            lambda: import_csv_pack(Path(path), self.config.runtime_dictionary_dir),
+            lambda: import_csv_pack(Path(path), self.config.runtime_dictionary_dir, direction=self.settings.direction),
         )
 
     def import_freedict_dictionary_pack(self) -> None:
@@ -723,7 +918,7 @@ class MainWindow:
             return
         self._run_dictionary_task(
             "Импортирован FreeDict-словарь",
-            lambda: import_freedict_pack(Path(path), self.config.runtime_dictionary_dir),
+            lambda: import_freedict_pack(Path(path), self.config.runtime_dictionary_dir, direction=self.settings.direction),
         )
 
     def show_dictionary_context_menu(self, event: tk.Event) -> None:
@@ -732,17 +927,292 @@ class MainWindow:
         finally:
             self.dictionary_context_menu.grab_release()
 
+    def show_dictionary_catalog(self) -> None:
+        if self._catalog_window is not None and self._catalog_window.winfo_exists():
+            self._catalog_window.deiconify()
+            self._catalog_window.lift()
+            self._populate_dictionary_catalog_tree()
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("Каталог словарей")
+        window.geometry("920x480")
+        window.transient(self.root)
+        window.configure(background="#eef2f7")
+        self._catalog_window = window
+        window.protocol("WM_DELETE_WINDOW", self._close_catalog_window)
+
+        top = ttk.Frame(window, padding=12, style="App.TFrame")
+        top.pack(fill=tk.BOTH, expand=True)
+
+        columns = ("title", "direction", "category", "source")
+        tree = ttk.Treeview(top, columns=columns, show="headings", height=10)
+        tree.heading("title", text="Пакет")
+        tree.heading("direction", text="Направление")
+        tree.heading("category", text="Категория")
+        tree.heading("source", text="Источник")
+        tree.column("title", width=270, anchor="w")
+        tree.column("direction", width=90, anchor="center")
+        tree.column("category", width=110, anchor="center")
+        tree.column("source", width=360, anchor="w")
+        tree.pack(fill=tk.BOTH, expand=True)
+        tree.bind("<<TreeviewSelect>>", self._on_catalog_selection_changed)
+        self._catalog_tree = tree
+
+        bottom = ttk.Frame(top, padding=(0, 10, 0, 0), style="App.TFrame")
+        bottom.pack(fill=tk.X)
+        self._catalog_description_var = tk.StringVar(value="Выберите пакет, чтобы увидеть описание и установить его.")
+        self._catalog_source_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self._catalog_description_var, style="Context.TLabel", wraplength=860, justify=tk.LEFT).pack(anchor="w")
+        ttk.Label(bottom, textvariable=self._catalog_source_var, style="Muted.TLabel", wraplength=860, justify=tk.LEFT).pack(anchor="w", pady=(4, 10))
+
+        buttons = ttk.Frame(bottom, style="App.TFrame")
+        buttons.pack(fill=tk.X)
+        ttk.Button(buttons, text="Установить выбранный пакет", command=self.install_selected_catalog_pack).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Открыть источник", command=self.open_selected_catalog_source).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(buttons, text="Обновить", command=self._populate_dictionary_catalog_tree).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(buttons, text="Закрыть", command=self._close_catalog_window).pack(side=tk.RIGHT)
+
+        self._populate_dictionary_catalog_tree()
+
+    def _close_catalog_window(self) -> None:
+        if self._catalog_window is not None and self._catalog_window.winfo_exists():
+            self._catalog_window.destroy()
+        self._catalog_window = None
+        self._catalog_tree = None
+        self._catalog_specs = {}
+
+    def _populate_dictionary_catalog_tree(self) -> None:
+        if self._catalog_tree is None:
+            return
+        tree = self._catalog_tree
+        for item in tree.get_children():
+            tree.delete(item)
+        self._catalog_specs = {}
+        for spec in available_catalog_items(self.config):
+            self._catalog_specs[spec.pack_id] = spec
+            source_preview = spec.source
+            tree.insert(
+                "",
+                tk.END,
+                iid=spec.pack_id,
+                values=(spec.title, spec.direction.upper(), spec.category, source_preview),
+            )
+        self._set_catalog_details(None)
+
+    def _selected_catalog_spec(self) -> DictionaryPackSpec | None:
+        if self._catalog_tree is None:
+            return None
+        selection = self._catalog_tree.selection()
+        if not selection:
+            return None
+        return self._catalog_specs.get(selection[0])
+
+    def _on_catalog_selection_changed(self, _event: tk.Event | None = None) -> None:
+        self._set_catalog_details(self._selected_catalog_spec())
+
+    def _set_catalog_details(self, spec: DictionaryPackSpec | None) -> None:
+        if self._catalog_description_var is None or self._catalog_source_var is None:
+            return
+        if spec is None:
+            self._catalog_description_var.set("Выберите пакет, чтобы увидеть описание и установить его.")
+            self._catalog_source_var.set("")
+            return
+        self._catalog_description_var.set(spec.description)
+        source_text = spec.source
+        if spec.urls:
+            source_text = "; ".join(spec.urls)
+        self._catalog_source_var.set(f"Источник: {source_text}")
+
+    def install_selected_catalog_pack(self) -> None:
+        spec = self._selected_catalog_spec()
+        if spec is None:
+            messagebox.showinfo("Каталог словарей", "Сначала выберите пакет в списке.")
+            return
+        self._run_dictionary_task(
+            f"Установлен пакет {spec.title}",
+            lambda: install_catalog_pack(spec, self.config.runtime_dictionary_dir, self.config.runtime_download_dir),
+        )
+
+    def open_selected_catalog_source(self) -> None:
+        spec = self._selected_catalog_spec()
+        if spec is None:
+            return
+        url = spec.urls[0] if spec.urls else spec.source
+        if not url.startswith("http"):
+            messagebox.showinfo("Источник словаря", f"Для этого пакета источник локальный: {url}")
+            return
+        webbrowser.open(url)
+
+    # ------------------------------------------------------------------
+    # Direction/provider settings
+    # ------------------------------------------------------------------
+    def _direction_display(self, direction: TranslationDirection) -> str:
+        return "EN → RU" if direction == EN_RU else "RU → EN"
+
+    def toggle_direction(self) -> None:
+        self._set_direction(RU_EN if self.settings.direction == EN_RU else EN_RU)
+
+    def on_direction_menu_change(self) -> None:
+        self._set_direction(self.direction_var.get())
+
+    def _set_direction(self, direction: TranslationDirection) -> None:
+        direction = direction if direction in (EN_RU, RU_EN) else EN_RU
+        if direction == self.settings.direction:
+            self.direction_button.configure(text=self._direction_display(direction))
+            return
+        self.settings.direction = direction
+        self.settings = self.settings.normalized()
+        self.settings_store.save(self.settings)
+        self.context_service.update_settings(self.settings)
+        self.direction_var.set(self.settings.direction)
+        self.direction_button.configure(text=self._direction_display(self.settings.direction))
+        self._refresh_dictionary_footer()
+        self._update_status(f"Направление перевода: {self._direction_display(self.settings.direction)}")
+        self._retranslate_current_selection()
+
+    def on_provider_menu_change(self) -> None:
+        provider_id = self.provider_var.get() or "disabled"
+        self.settings.context_provider_id = provider_id
+        self.settings = self.settings.normalized()
+        self.settings_store.save(self.settings)
+        self.context_service.update_settings(self.settings)
+        self.provider_var.set(self.settings.context_provider_id)
+        self._update_status(f"Контекстный провайдер: {self.context_service.provider_name()}")
+        if self.current_view_model is not None:
+            self._populate_panel(self.current_view_model)
+            self._start_context_translation(self.current_view_model)
+        else:
+            self.example_var.set(self._provider_idle_text())
+
+    def show_provider_settings_dialog(self) -> None:
+        provider_id = self.context_service.active_provider_id()
+        window = tk.Toplevel(self.root)
+        window.title("Настройка провайдера контекстного перевода")
+        window.geometry("560x320")
+        window.transient(self.root)
+        window.configure(background="#eef2f7")
+
+        frame = ttk.Frame(window, padding=14, style="App.TFrame")
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=f"Текущий провайдер: {self.context_service.provider_name(provider_id)}", style="CardTitle.TLabel").pack(anchor="w")
+
+        if provider_id == "libretranslate":
+            url_var = tk.StringVar(value=self.settings.libretranslate_url)
+            api_var = tk.StringVar(value=self.settings.libretranslate_api_key)
+            ttk.Label(frame, text="URL сервера LibreTranslate:").pack(anchor="w", pady=(12, 2))
+            ttk.Entry(frame, textvariable=url_var, width=64).pack(fill=tk.X)
+            ttk.Label(frame, text="API key (можно оставить пустым для self-hosted):").pack(anchor="w", pady=(10, 2))
+            ttk.Entry(frame, textvariable=api_var, width=64, show="*").pack(fill=tk.X)
+
+            def save() -> None:
+                self.settings.libretranslate_url = url_var.get()
+                self.settings.libretranslate_api_key = api_var.get()
+                self.settings = self.settings.normalized()
+                self.settings_store.save(self.settings)
+                self.context_service.update_settings(self.settings)
+                window.destroy()
+                self._update_status("Настройки LibreTranslate сохранены")
+                if self.current_view_model is not None:
+                    self._start_context_translation(self.current_view_model)
+
+        elif provider_id == "yandex":
+            folder_var = tk.StringVar(value=self.settings.yandex_folder_id)
+            api_var = tk.StringVar(value=self.settings.yandex_api_key)
+            iam_var = tk.StringVar(value=self.settings.yandex_iam_token)
+            ttk.Label(frame, text="Folder ID (обязательно для Bearer token, не нужен для service-account API key):").pack(anchor="w", pady=(12, 2))
+            ttk.Entry(frame, textvariable=folder_var, width=64).pack(fill=tk.X)
+            ttk.Label(frame, text="API key:").pack(anchor="w", pady=(10, 2))
+            ttk.Entry(frame, textvariable=api_var, width=64, show="*").pack(fill=tk.X)
+            ttk.Label(frame, text="IAM token (если используешь Bearer):").pack(anchor="w", pady=(10, 2))
+            ttk.Entry(frame, textvariable=iam_var, width=64, show="*").pack(fill=tk.X)
+
+            def save() -> None:
+                self.settings.yandex_folder_id = folder_var.get()
+                self.settings.yandex_api_key = api_var.get()
+                self.settings.yandex_iam_token = iam_var.get()
+                self.settings = self.settings.normalized()
+                self.settings_store.save(self.settings)
+                self.context_service.update_settings(self.settings)
+                window.destroy()
+                self._update_status("Настройки Yandex Cloud сохранены")
+                if self.current_view_model is not None:
+                    self._start_context_translation(self.current_view_model)
+
+        elif provider_id == "argos":
+            info = (
+                "Argos — офлайн провайдер. Он появится в приложении автоматически, если установить\n"
+                "optional зависимости и модель направления EN↔RU. В проект включён отдельный\n"
+                "скрипт tools/install_argos_model.py и инструкция в README."
+            )
+            ttk.Label(frame, text=info, style="Context.TLabel", wraplength=520, justify=tk.LEFT).pack(anchor="w", pady=(14, 10))
+
+            def save() -> None:
+                window.destroy()
+
+        else:
+            ttk.Label(frame, text="Для отключённого режима дополнительных настроек нет.", style="Context.TLabel").pack(anchor="w", pady=(14, 10))
+
+            def save() -> None:
+                window.destroy()
+
+        buttons = ttk.Frame(frame, style="App.TFrame")
+        buttons.pack(side=tk.BOTTOM, fill=tk.X, pady=(16, 0))
+        ttk.Button(buttons, text="OK", command=save).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Отмена", command=window.destroy).pack(side=tk.RIGHT, padx=(0, 6))
+
+    def show_argos_installation_help(self) -> None:
+        direction = self.settings.direction
+        from_code = "en" if direction == EN_RU else "ru"
+        to_code = "ru" if direction == EN_RU else "en"
+        command = (
+            f"source .venv/bin/activate && PYTHONPATH=src python tools/install_argos_model.py "
+            f"--from-lang {from_code} --to-lang {to_code}"
+        )
+        messagebox.showinfo(
+            "Установка Argos",
+            "Для офлайн контекстного перевода через Argos:\n\n"
+            "1. Установите optional зависимости из README.\n"
+            "2. Запустите команду:\n\n"
+            f"{command}\n\n"
+            "После установки выберите провайдер «Argos (офлайн)» в меню «Перевод»."
+        )
+
+    def _retranslate_current_selection(self) -> None:
+        if self.current_highlight_token is None:
+            self.example_var.set(self._provider_idle_text())
+            return
+        x0, y0, x1, y1 = self.current_highlight_token.rect
+        self.process_click_at_page_coords(
+            self.current_highlight_token.page_index,
+            (x0 + x1) / 2,
+            (y0 + y1) / 2,
+        )
+
+    # ------------------------------------------------------------------
+    # UI font settings
+    # ------------------------------------------------------------------
     def change_ui_font_size(self, delta: int) -> None:
-        updated = UiSettings(ui_font_size=self.settings.ui_font_size + delta).normalized()
+        updated = UiSettings(**{**self.settings.__dict__, "ui_font_size": self.settings.ui_font_size + delta}).normalized()
         if updated.ui_font_size == self.settings.ui_font_size:
             return
         self.settings = updated
         self.settings_store.save(self.settings)
+        self.context_service.update_settings(self.settings)
         self._configure_styles()
+        self.direction_button.configure(text=self._direction_display(self.settings.direction))
         self._update_status(f"Размер интерфейса: {self.settings.ui_font_size} pt")
 
     def reset_ui_font_size(self) -> None:
-        self.settings = UiSettings().normalized()
+        defaults = UiSettings(direction=self.settings.direction, context_provider_id=self.settings.context_provider_id)
+        defaults.libretranslate_url = self.settings.libretranslate_url
+        defaults.libretranslate_api_key = self.settings.libretranslate_api_key
+        defaults.yandex_folder_id = self.settings.yandex_folder_id
+        defaults.yandex_api_key = self.settings.yandex_api_key
+        defaults.yandex_iam_token = self.settings.yandex_iam_token
+        self.settings = defaults.normalized()
         self.settings_store.save(self.settings)
+        self.context_service.update_settings(self.settings)
         self._configure_styles()
+        self.direction_button.configure(text=self._direction_display(self.settings.direction))
         self._update_status(f"Размер интерфейса сброшен: {self.settings.ui_font_size} pt")

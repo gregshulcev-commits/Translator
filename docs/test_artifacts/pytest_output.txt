@@ -1,1 +1,24 @@
-................                                                         [100%]
+...................                                                      [100%]
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_config.py::test_project_root_points_to_repository
+PASSED tests/test_dictionary_installer.py::test_import_csv_pack_builds_sqlite_dictionary
+PASSED tests/test_dictionary_installer.py::test_install_sqlite_pack_copies_existing_pack
+PASSED tests/test_dictionary_plugin.py::test_dictionary_exact_lookup
+PASSED tests/test_dictionary_plugin.py::test_dictionary_heuristic_lookup
+PASSED tests/test_direction_and_tokens.py::test_compound_pdf_token_is_split_into_clickable_parts
+PASSED tests/test_direction_and_tokens.py::test_reverse_dictionary_lookup_supports_ru_en
+PASSED tests/test_direction_and_tokens.py::test_workflow_uses_requested_direction
+PASSED tests/test_freedict_importer.py::test_freedict_tei_builds_sqlite_dictionary
+PASSED tests/test_normalizer.py::test_normalize_strips_punctuation_and_lowercases
+PASSED tests/test_normalizer.py::test_candidate_forms_include_useful_fallbacks
+PASSED tests/test_pdf_provider.py::test_pdf_tokens_and_sentence_extraction
+PASSED tests/test_pdf_provider.py::test_pdf_search
+PASSED tests/test_real_pdfs.py::test_uploaded_pdfs_expose_text_layer
+PASSED tests/test_real_pdfs.py::test_irio_pdf_contains_driver_token
+PASSED tests/test_settings_store.py::test_settings_store_roundtrip
+PASSED tests/test_text_plugins.py::test_txt_plugin_tokens_search_and_sentence
+PASSED tests/test_text_plugins.py::test_fb2_plugin_extracts_title_and_body
+PASSED tests/test_workflow.py::test_workflow_translates_clicked_word
+
+[exit code 0]

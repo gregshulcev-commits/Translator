@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models import DocumentSentence, LookupResult, WordToken
+from ..models import DocumentSentence, LookupResult, TranslationDirection, WordToken
 from .dictionary_service import DictionaryService
 from .document_service import DocumentService
 
@@ -17,6 +17,7 @@ class TranslationViewModel:
     token: WordToken
     context: DocumentSentence
     lookup: LookupResult
+    direction: TranslationDirection
 
 
 class TranslationWorkflow:
@@ -26,10 +27,16 @@ class TranslationWorkflow:
         self._document_service = document_service
         self._dictionary_service = dictionary_service
 
-    def translate_point(self, page_index: int, x: float, y: float) -> TranslationViewModel | None:
+    def translate_point(
+        self,
+        page_index: int,
+        x: float,
+        y: float,
+        direction: TranslationDirection = "en-ru",
+    ) -> TranslationViewModel | None:
         token = self._document_service.session.find_token_at(page_index, x, y)
         if token is None:
             return None
         context = self._document_service.session.get_sentence_for_token(token)
-        lookup = self._dictionary_service.lookup(token.text)
-        return TranslationViewModel(token=token, context=context, lookup=lookup)
+        lookup = self._dictionary_service.lookup(token.text, direction=direction)
+        return TranslationViewModel(token=token, context=context, lookup=lookup, direction=direction)

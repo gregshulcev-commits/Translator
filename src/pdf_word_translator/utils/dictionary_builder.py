@@ -1,7 +1,8 @@
 """Helpers for building SQLite dictionary packs.
 
-The MVP keeps dictionary data in a small SQLite schema so multiple sources can
-be merged without touching the UI or lookup workflow.
+The project stores dictionaries in a compact SQLite schema with metadata,
+allowing different packs and language directions to be hot-swapped without
+changing the UI or lookup workflow.
 """
 from __future__ import annotations
 
@@ -11,13 +12,12 @@ from typing import Iterable, Iterator, Sequence
 import csv
 import sqlite3
 
-from .text_normalizer import EnglishWordNormalizer
+from ..models import EN_RU, RU_EN, TranslationDirection, direction_source_lang, direction_target_lang
+from .text_normalizer import WordNormalizer
 
 
 @dataclass
 class DictionaryBuildEntry:
-    """Dictionary entry used by CSV and FreeDict importers before SQLite export."""
-
     headword: str
     best_translation: str
     alternatives: list[str] = field(default_factory=list)
@@ -27,12 +27,39 @@ class DictionaryBuildEntry:
     transcription: str = ""
 
 
+@dataclass
+class DictionaryMetadata:
+    pack_name: str
+    direction: TranslationDirection = EN_RU
+    pack_kind: str = "custom"
+    description: str = ""
+    source: str = ""
+
+    @property
+    def source_lang(self) -> str:
+        return direction_source_lang(self.direction)
+
+    @property
+    def target_lang(self) -> str:
+        return direction_target_lang(self.direction)
+
+
+# Backward-compatible alias used by older code/docs.
+DictionaryPackOptions = DictionaryMetadata
+
+
 SCHEMA_SQL = """
+DROP TABLE IF EXISTS metadata;
 DROP TABLE IF EXISTS examples;
 DROP TABLE IF EXISTS senses;
 DROP TABLE IF EXISTS transcriptions;
 DROP TABLE IF EXISTS forms;
 DROP TABLE IF EXISTS entries;
+
+CREATE TABLE metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 
 CREATE TABLE entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,24 +104,43 @@ CREATE INDEX idx_entries_normalized_headword ON entries(normalized_headword);
 """
 
 
-def ensure_dictionary_database(csv_path: Path, db_path: Path) -> None:
-    """Build the bundled SQLite dictionary if it does not exist yet."""
+def default_metadata_for_path(db_path: Path, direction: TranslationDirection = EN_RU, pack_kind: str = "custom") -> DictionaryMetadata:
+    title = Path(db_path).stem.replace("_", " ")
+    return DictionaryMetadata(pack_name=title, direction=direction, pack_kind=pack_kind)
+
+
+def ensure_dictionary_database(csv_path: Path, db_path: Path, metadata: DictionaryMetadata | None = None) -> None:
     csv_path = Path(csv_path)
     db_path = Path(db_path)
     if not db_path.exists() or db_path.stat().st_size == 0:
-        build_dictionary_from_csv(csv_path, db_path)
+        build_dictionary_from_csv(csv_path, db_path, metadata=metadata)
 
 
-def build_dictionary_from_csv(csv_path: Path, db_path: Path) -> Path:
-    """Convert a CSV glossary into the runtime SQLite schema."""
+def build_dictionary_from_csv(csv_path: Path, db_path: Path, metadata: DictionaryMetadata | None = None) -> Path:
     csv_path = Path(csv_path)
     db_path = Path(db_path)
     entries = list(_iter_csv_entries(csv_path))
-    return build_dictionary_from_entries(entries, db_path)
+    if metadata is None:
+        metadata = default_metadata_for_path(db_path, direction=EN_RU, pack_kind="csv")
+    return build_dictionary_from_entries(entries, db_path, metadata=metadata)
 
 
-def build_dictionary_from_entries(entries: Sequence[DictionaryBuildEntry] | Iterable[DictionaryBuildEntry], db_path: Path) -> Path:
-    """Persist a sequence of normalized dictionary entries into SQLite."""
+def build_reverse_dictionary_from_csv(csv_path: Path, db_path: Path, metadata: DictionaryMetadata | None = None) -> Path:
+    csv_path = Path(csv_path)
+    db_path = Path(db_path)
+    entries = list(_iter_csv_entries(csv_path))
+    reversed_entries = _reverse_entries(entries)
+    if metadata is None:
+        metadata = default_metadata_for_path(db_path, direction=RU_EN, pack_kind="csv-reverse")
+    return build_dictionary_from_entries(reversed_entries, db_path, metadata=metadata)
+
+
+def build_dictionary_from_entries(
+    entries: Sequence[DictionaryBuildEntry] | Iterable[DictionaryBuildEntry],
+    db_path: Path,
+    *,
+    metadata: DictionaryMetadata,
+) -> Path:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists():
@@ -104,14 +150,26 @@ def build_dictionary_from_entries(entries: Sequence[DictionaryBuildEntry] | Iter
     try:
         cursor = connection.cursor()
         cursor.executescript(SCHEMA_SQL)
-
+        _insert_metadata(cursor, metadata)
         for entry in entries:
-            _insert_entry(cursor, entry)
-
+            _insert_entry(cursor, entry, source_lang=metadata.source_lang)
         connection.commit()
     finally:
         connection.close()
     return db_path
+
+
+def _insert_metadata(cursor: sqlite3.Cursor, metadata: DictionaryMetadata) -> None:
+    pairs = {
+        "pack_name": metadata.pack_name,
+        "source_lang": metadata.source_lang,
+        "target_lang": metadata.target_lang,
+        "pack_kind": metadata.pack_kind,
+        "description": metadata.description,
+        "source": metadata.source,
+    }
+    for key, value in pairs.items():
+        cursor.execute("INSERT INTO metadata(key, value) VALUES (?, ?)", (key, value))
 
 
 def _iter_csv_entries(csv_path: Path) -> Iterator[DictionaryBuildEntry]:
@@ -143,14 +201,45 @@ def _iter_csv_entries(csv_path: Path) -> Iterator[DictionaryBuildEntry]:
             )
 
 
-def _insert_entry(cursor: sqlite3.Cursor, entry: DictionaryBuildEntry) -> None:
+def _reverse_entries(entries: Sequence[DictionaryBuildEntry]) -> list[DictionaryBuildEntry]:
+    aggregated: dict[str, DictionaryBuildEntry] = {}
+    for entry in entries:
+        english_forms = [entry.headword, *entry.forms]
+        source_candidates = _unique_nonempty([entry.best_translation, *entry.alternatives])
+        if not source_candidates:
+            continue
+        for source_headword in source_candidates:
+            key = WordNormalizer.normalize(source_headword, language="ru")
+            if not key:
+                continue
+            reverse_examples = [(dst, src) for src, dst in entry.examples if src and dst]
+            if key not in aggregated:
+                aggregated[key] = DictionaryBuildEntry(
+                    headword=source_headword,
+                    best_translation=entry.headword,
+                    alternatives=[form for form in english_forms if form != entry.headword],
+                    forms=[source_headword],
+                    examples=reverse_examples,
+                    notes=f"reverse from {entry.headword}" if entry.headword else "",
+                    transcription="",
+                )
+                continue
+            current = aggregated[key]
+            current.alternatives = _unique_nonempty([*current.alternatives, entry.headword, *english_forms])
+            current.forms = _unique_nonempty([*current.forms, source_headword])
+            for example in reverse_examples:
+                if example not in current.examples:
+                    current.examples.append(example)
+    return list(aggregated.values())
+
+
+def _insert_entry(cursor: sqlite3.Cursor, entry: DictionaryBuildEntry, *, source_lang: str) -> None:
     headword = entry.headword.strip()
-    normalized_headword = EnglishWordNormalizer.normalize(headword)
+    normalized_headword = WordNormalizer.normalize(headword, language=source_lang)
     if not normalized_headword:
         return
 
-    best_translation = entry.best_translation.strip()
-    unique_senses = _unique_nonempty([best_translation, *entry.alternatives])
+    unique_senses = _unique_nonempty([entry.best_translation, *entry.alternatives])
     if not unique_senses:
         return
     best_translation = unique_senses[0]
@@ -161,10 +250,10 @@ def _insert_entry(cursor: sqlite3.Cursor, entry: DictionaryBuildEntry) -> None:
     )
     entry_id = int(cursor.lastrowid)
 
-    for form in _normalized_forms_for_entry(headword, entry.forms):
+    for form in _normalized_forms_for_entry(headword, entry.forms, source_lang=source_lang):
         cursor.execute(
             "INSERT INTO forms(entry_id, form, normalized_form) VALUES (?, ?, ?)",
-            (entry_id, form, EnglishWordNormalizer.normalize(form)),
+            (entry_id, form, WordNormalizer.normalize(form, language=source_lang)),
         )
 
     if entry.transcription.strip():
@@ -189,13 +278,13 @@ def _insert_entry(cursor: sqlite3.Cursor, entry: DictionaryBuildEntry) -> None:
             )
 
 
-def _normalized_forms_for_entry(headword: str, forms: Iterable[str]) -> list[str]:
+def _normalized_forms_for_entry(headword: str, forms: Iterable[str], *, source_lang: str) -> list[str]:
     values: list[str] = []
     for candidate in [headword, *forms]:
         raw = candidate.strip()
-        normalized = EnglishWordNormalizer.normalize(raw)
-        if normalized and normalized not in values:
-            values.append(normalized)
+        normalized = WordNormalizer.normalize(raw, language=source_lang)
+        if normalized and raw not in values:
+            values.append(raw)
     return values
 
 

@@ -1,13 +1,14 @@
 """Composite dictionary plugin.
 
 This plugin lets the application search multiple dictionary packs without
-changing the lookup workflow. The first pack has the highest priority.
+changing the lookup workflow. The first supporting pack has the highest
+priority for the selected direction.
 """
 from __future__ import annotations
 
 from typing import Iterable
 
-from ..models import LookupResult
+from ..models import DictionaryPackInfo, LookupResult, TranslationDirection
 from ..plugin_api import DictionaryPlugin
 
 
@@ -18,10 +19,25 @@ class CompositeDictionaryPlugin(DictionaryPlugin):
     def plugin_id(self) -> str:
         return "dictionary.composite"
 
-    def lookup(self, word: str) -> LookupResult:
+    def pack_info(self) -> DictionaryPackInfo:
+        return DictionaryPackInfo(
+            pack_id="composite",
+            title="Composite dictionary",
+            direction="multi",
+            category="composite",
+            description="Logical wrapper around multiple installed dictionary packs.",
+            source="runtime",
+        )
+
+    def supports(self, direction: TranslationDirection) -> bool:
+        return any(plugin.supports(direction) for plugin in self._plugins)
+
+    def lookup(self, word: str, direction: TranslationDirection = "en-ru") -> LookupResult:
         fallback: LookupResult | None = None
         for plugin in self._plugins:
-            result = plugin.lookup(word)
+            if not plugin.supports(direction):
+                continue
+            result = plugin.lookup(word, direction=direction)
             if fallback is None:
                 fallback = result
             if result.found:

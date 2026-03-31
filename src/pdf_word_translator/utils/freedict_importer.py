@@ -10,22 +10,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 import logging
-import tempfile
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from .dictionary_builder import DictionaryBuildEntry, build_dictionary_from_entries
-from .text_normalizer import EnglishWordNormalizer
+from ..models import EN_RU, RU_EN, TranslationDirection
+from .dictionary_builder import DictionaryBuildEntry, DictionaryMetadata, build_dictionary_from_entries
+from .text_normalizer import WordNormalizer
 
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_FREEDICT_ENG_RUS_URLS = (
-    # Current generated source published by FreeDict.
     "https://download.freedict.org/generated/eng-rus/eng-rus.tei",
-    # Debian source mirror fallback used when the generated endpoint is unavailable.
     "https://sources.debian.org/data/main/f/freedict/2022.04.21-1/eng-rus/eng-rus.tei",
+)
+DEFAULT_FREEDICT_RUS_ENG_URLS = (
+    "https://download.freedict.org/generated/rus-eng/rus-eng.tei",
+    "https://sources.debian.org/data/main/f/freedict/2022.04.21-1/rus-eng/rus-eng.tei",
 )
 
 
@@ -35,7 +37,19 @@ class DownloadResult:
     source_url: str
 
 
-def download_freedict_tei(destination: Path, urls: Iterable[str] = DEFAULT_FREEDICT_ENG_RUS_URLS) -> DownloadResult:
+def default_urls_for_pair(source_lang: str, target_lang: str) -> tuple[str, ...]:
+    if source_lang == "ru" and target_lang == "en":
+        return DEFAULT_FREEDICT_RUS_ENG_URLS
+    return DEFAULT_FREEDICT_ENG_RUS_URLS
+
+
+def urls_for_direction(direction: TranslationDirection) -> tuple[str, ...]:
+    if direction == RU_EN:
+        return DEFAULT_FREEDICT_RUS_ENG_URLS
+    return DEFAULT_FREEDICT_ENG_RUS_URLS
+
+
+def download_freedict_tei(destination: Path, urls: Iterable[str]) -> DownloadResult:
     """Download a FreeDict TEI file using the first reachable URL."""
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -54,33 +68,58 @@ def download_freedict_tei(destination: Path, urls: Iterable[str] = DEFAULT_FREED
     raise RuntimeError(f"Не удалось скачать FreeDict TEI. Последняя ошибка: {last_error}")
 
 
-def build_dictionary_from_freedict_tei(tei_path: Path, db_path: Path) -> Path:
-    """Convert a FreeDict TEI file into the MVP SQLite schema."""
-    entries = _aggregate_freedict_entries(Path(tei_path))
-    return build_dictionary_from_entries(entries.values(), db_path)
+def build_dictionary_from_freedict_tei(
+    tei_path: Path,
+    db_path: Path,
+    *,
+    direction: TranslationDirection = EN_RU,
+    metadata: DictionaryMetadata | None = None,
+) -> Path:
+    """Convert a FreeDict TEI file into the runtime SQLite schema."""
+    entries = _aggregate_freedict_entries(Path(tei_path), direction=direction)
+    if metadata is None:
+        metadata = DictionaryMetadata(
+            pack_name=Path(db_path).stem.replace("_", " "),
+            direction=direction,
+            pack_kind="freedict",
+            source=str(tei_path),
+        )
+    return build_dictionary_from_entries(entries.values(), db_path, metadata=metadata)
 
 
-def install_default_freedict_dictionary(runtime_dictionary_dir: Path, download_dir: Path) -> Path:
-    """Download and build the default general EN-RU dictionary pack."""
+def install_default_freedict_dictionary(
+    runtime_dictionary_dir: Path,
+    download_dir: Path,
+    *,
+    direction: TranslationDirection = EN_RU,
+    metadata: DictionaryMetadata | None = None,
+) -> Path:
+    """Download and build the default FreeDict pack for the requested direction."""
     runtime_dictionary_dir = Path(runtime_dictionary_dir)
     download_dir = Path(download_dir)
     runtime_dictionary_dir.mkdir(parents=True, exist_ok=True)
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    tei_path = download_dir / "freedict-eng-rus.tei"
-    db_path = runtime_dictionary_dir / "freedict_en_ru.sqlite"
+    suffix = "en_ru" if direction == EN_RU else "ru_en"
+    tei_path = download_dir / f"freedict-{suffix}.tei"
+    db_path = runtime_dictionary_dir / f"freedict_{suffix}.sqlite"
 
-    result = download_freedict_tei(tei_path)
+    result = download_freedict_tei(tei_path, urls_for_direction(direction))
     LOGGER.info("Building SQLite dictionary from %s", result.source_url)
-    return build_dictionary_from_freedict_tei(result.path, db_path)
+    if metadata is None:
+        metadata = DictionaryMetadata(
+            pack_name="FreeDict EN→RU" if direction == EN_RU else "FreeDict RU→EN",
+            direction=direction,
+            pack_kind="general",
+            description="FreeDict TEI import",
+            source=result.source_url,
+        )
+    return build_dictionary_from_freedict_tei(result.path, db_path, direction=direction, metadata=metadata)
 
 
-def _aggregate_freedict_entries(tei_path: Path) -> dict[str, DictionaryBuildEntry]:
-    """Merge FreeDict TEI entries by normalized headword.
-
-    FreeDict often contains multiple TEI <entry> blocks for the same word.
-    Grouping them keeps lookup deterministic and combines translations.
-    """
+def _aggregate_freedict_entries(tei_path: Path, *, direction: TranslationDirection) -> dict[str, DictionaryBuildEntry]:
+    """Merge FreeDict TEI entries by normalized headword."""
+    source_lang = "ru" if direction == RU_EN else "en"
     aggregated: dict[str, DictionaryBuildEntry] = {}
 
     context = ET.iterparse(tei_path, events=("end",))
@@ -93,7 +132,7 @@ def _aggregate_freedict_entries(tei_path: Path) -> dict[str, DictionaryBuildEntr
         if parsed is None:
             continue
 
-        key = EnglishWordNormalizer.normalize(parsed.headword)
+        key = WordNormalizer.normalize(parsed.headword, language=source_lang)
         if key not in aggregated:
             aggregated[key] = parsed
             continue

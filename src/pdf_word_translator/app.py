@@ -11,7 +11,7 @@ from .services.dictionary_service import DictionaryService
 from .services.document_service import DocumentService
 from .services.translation_workflow import TranslationWorkflow
 from .ui.main_window import MainWindow
-from .utils.dictionary_builder import ensure_dictionary_database
+from .utils.dictionary_builder import DictionaryMetadata, ensure_dictionary_database
 from .utils.logging_utils import setup_logging
 from .utils.settings_store import SettingsStore
 
@@ -27,7 +27,28 @@ def main() -> int:
 
     config = AppConfig()
     config.ensure_runtime_directories()
-    ensure_dictionary_database(config.starter_dictionary_csv, config.starter_dictionary_db)
+    ensure_dictionary_database(
+        config.starter_dictionary_csv,
+        config.starter_dictionary_db,
+        metadata=DictionaryMetadata(
+            pack_name="Встроенный технический EN→RU",
+            direction="en-ru",
+            pack_kind="technical",
+            description="Компактный технический словарь, входящий в дистрибутив.",
+            source=str(config.starter_dictionary_csv),
+        ),
+    )
+    ensure_dictionary_database(
+        config.starter_dictionary_ru_en_csv,
+        config.starter_dictionary_ru_en_db,
+        metadata=DictionaryMetadata(
+            pack_name="Встроенный технический RU→EN",
+            direction="ru-en",
+            pack_kind="technical",
+            description="Компактный технический словарь, входящий в дистрибутив.",
+            source=str(config.starter_dictionary_ru_en_csv),
+        ),
+    )
     setup_logging(config.runtime_log_dir)
 
     plugin_loader = PluginLoader(config)

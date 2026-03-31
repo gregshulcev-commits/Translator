@@ -1,28 +1,16 @@
-# Журнал разработки
+# Development log
 
-## Итерация v3
+## v4 highlights
 
-### Изменения
-
-- viewer переведён на непрерывный scroll всего документа;
-- добавлен zoom под курсором через `Ctrl + колесо мыши`;
-- верхний порог zoom увеличен до 600%;
-- добавлены `PlainTextDocumentPlugin` и `Fb2DocumentPlugin`;
-- добавлен общий `TextDocumentSession` для reflowable formats;
-- `DocumentService` расширен до работы с несколькими document plugins;
-- добавлено GUI-управление словарями через меню и context menu;
-- добавлен hot-reload словарей без перезапуска приложения;
-- добавлен persistent `SettingsStore` и настройка размера интерфейса;
-- обновлены README и проектная документация.
-
-### Отдельно проверено
-
-- `pytest` проходит (`16/16`);
-- GUI smoke test проходит;
-- реальные PDF пользователя продолжают корректно открываться;
-- CMake targets не сломаны;
-- fallback при отсутствии сети для FreeDict по-прежнему работает.
-
-### Честное ограничение этой итерации
-
-Android APK в архив не включён. Это связано не с core-логикой, а с тем, что текущий GUI построен на Tkinter, а такой стек не поддерживается на Android. Чтобы получить честно рабочую mobile-версию, нужен отдельный UI-layer (например, Kivy/Qt/BeeWare) поверх уже существующих сервисов и словарного ядра.
+- fixed text-plugin base class mismatch;
+- fixed composite dictionary plugin to fully implement the plugin API;
+- added starter EN→RU and starter RU→EN packs;
+- added bundled technical / literary packs;
+- added lazy page rendering to reduce zoom freezes on large PDFs;
+- added compound token splitting for `a/b` and `a\b`;
+- added direction switching EN ↔ RU;
+- added context provider port with Disabled / Argos / LibreTranslate / Yandex adapters;
+- removed raw document sentence from the compact panel;
+- added in-app dictionary catalog;
+- added Argos model install helper;
+- expanded test coverage and refreshed docs.

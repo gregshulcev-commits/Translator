@@ -2,32 +2,20 @@
 
 ## Назначение
 
-Собирает набор доступных plugins на старте приложения.
+Загрузчик builtin и внешних плагинов.
 
-## Что загружается
+## Что делает
 
-### Document plugins
+- регистрирует document plugins:
+  - PDF / PyMuPDF;
+  - TXT;
+  - FB2;
+- собирает composite dictionary plugin из:
+  - встроенного EN→RU словаря;
+  - встроенного RU→EN словаря;
+  - всех runtime `*.sqlite` packs;
+  - внешних dictionary plugins.
 
-- `PyMuPdfDocumentPlugin`
-- `PlainTextDocumentPlugin`
-- `Fb2DocumentPlugin`
+## Важная деталь v4
 
-### Dictionary plugins
-
-- встроенный технический словарь из `data/starter_dictionary.sqlite`;
-- все `*.sqlite` паки из `runtime_dictionary_dir`;
-- итоговый `CompositeDictionaryPlugin`.
-
-## Особенность v3
-
-Появился метод `create_dictionary_plugin()`, который заново строит composite plugin из текущих словарных паков. Это используется GUI после установки нового словаря без перезапуска приложения.
-
-## Внешние плагины
-
-Поддерживаются Python-файлы из:
-
-```text
-~/.local/share/pdf_word_translator_mvp/plugins/
-```
-
-если они экспортируют `register_plugins()`.
+Теперь loader поднимает **оба встроенных направления** уже на старте, чтобы UI мог переключать EN ↔ RU без переинициализации приложения.

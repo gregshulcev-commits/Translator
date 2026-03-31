@@ -4,7 +4,7 @@
 
 Результат:
 
-- **16/16 тестов проходят**.
+- **19/19 тестов проходят**.
 
 Покрыты:
 
@@ -15,10 +15,10 @@
 - TXT / FB2 plugins;
 - dictionary installer helpers;
 - workflow;
+- переключение направления EN ↔ RU;
+- split compound tokens (`diagnostic\measurement`);
 - реальные PDF пользователя;
 - settings store.
-
-См. `docs/test_artifacts/pytest_output.txt`.
 
 ## 2. GUI smoke test
 
@@ -28,9 +28,8 @@
 - многостраничный PDF открывается;
 - слово `configuration` переводится корректно;
 - scroll двигает viewport;
-- `Ctrl + колесо` меняет zoom.
-
-См. `docs/test_artifacts/smoke_output.txt`.
+- `Ctrl + колесо` меняет zoom;
+- compact help panel не показывает сырое предложение из документа.
 
 ## 3. Реальные PDF пользователя
 
@@ -44,11 +43,10 @@
 
 В sandbox внешняя сеть для скачивания FreeDict была недоступна, поэтому проверен fallback-сценарий:
 
-- встроенный технический словарь собирается корректно;
+- встроенные словари собираются корректно;
+- bundled technical / literary packs устанавливаются корректно;
 - приложение продолжает работать даже без скачанного общего словаря;
 - GUI и CLI импорт локальных паков покрыт отдельными тестами.
-
-См. `docs/test_artifacts/install_default_output.txt`.
 
 ## 5. CMake targets
 
@@ -56,5 +54,3 @@
 
 - `cmake --build build --target test` — успешно;
 - `cmake --build build --target install_dictionaries` — успешно, с корректным fallback при отсутствии сети.
-
-См. `docs/test_artifacts/cmake_test_output.txt` и `docs/test_artifacts/cmake_install_dictionaries_output.txt`.

@@ -61,7 +61,7 @@ def main() -> int:
         root.update()
         assert result is not None
         assert window.best_translation_var.get() == "конфигурация"
-        assert "window" in window.example_var.get().lower()
+        assert "контекстный перевод" in window.example_var.get().lower() or "пример:" in window.example_var.get().lower()
 
         before = window.canvas.canvasy(0)
         window._on_mousewheel(SimpleNamespace(num=5, delta=0, state=0, x=120, y=120))

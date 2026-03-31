@@ -1,7 +1,18 @@
 [100%] Download and build the default dictionary packs
 Failed to download https://download.freedict.org/generated/eng-rus/eng-rus.tei: <urlopen error [Errno -3] Temporary failure in name resolution>
 Failed to download https://sources.debian.org/data/main/f/freedict/2022.04.21-1/eng-rus/eng-rus.tei: <urlopen error [Errno -3] Temporary failure in name resolution>
-[OK] Bundled technical glossary ready: /mnt/data/work_v3/pdf_word_translator_mvp/data/starter_dictionary.sqlite
-[WARN] FreeDict EN-RU pack was not installed automatically: Не удалось скачать FreeDict TEI. Последняя ошибка: <urlopen error [Errno -3] Temporary failure in name resolution>
-[WARN] The application will still run with the bundled technical glossary.
+Failed to download https://download.freedict.org/generated/rus-eng/rus-eng.tei: <urlopen error [Errno -3] Temporary failure in name resolution>
+Failed to download https://sources.debian.org/data/main/f/freedict/2022.04.21-1/rus-eng/rus-eng.tei: <urlopen error [Errno -3] Temporary failure in name resolution>
+[OK] Starter EN→RU glossary ready: /mnt/data/pdf_word_translator_mvp_v4_work/pdf_word_translator_mvp_v4/data/starter_dictionary.sqlite
+[OK] Starter RU→EN glossary ready: /mnt/data/pdf_word_translator_mvp_v4_work/pdf_word_translator_mvp_v4/data/starter_dictionary_ru_en.sqlite
+[OK] Installed bundled pack technical_en_ru: /home/oai/.local/share/pdf_word_translator_mvp/dictionaries/technical_en_ru.sqlite
+[OK] Installed bundled pack technical_ru_en: /home/oai/.local/share/pdf_word_translator_mvp/dictionaries/technical_ru_en.sqlite
+[OK] Installed bundled pack literary_en_ru: /home/oai/.local/share/pdf_word_translator_mvp/dictionaries/literary_en_ru.sqlite
+[OK] Installed bundled pack literary_ru_en: /home/oai/.local/share/pdf_word_translator_mvp/dictionaries/literary_ru_en.sqlite
+[WARN] FreeDict EN→RU pack was not installed automatically: Не удалось скачать FreeDict TEI. Последняя ошибка: <urlopen error [Errno -3] Temporary failure in name resolution>
+[WARN] The application will still run with the bundled dictionaries.
+[WARN] FreeDict RU→EN pack was not installed automatically: Не удалось скачать FreeDict TEI. Последняя ошибка: <urlopen error [Errno -3] Temporary failure in name resolution>
+[WARN] The application will still run with the bundled dictionaries.
 [100%] Built target install_dictionaries
+
+[exit code 0]

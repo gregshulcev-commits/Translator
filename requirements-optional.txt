@@ -1,0 +1,5 @@
+# Optional providers and extensions.
+# The base Linux viewer does not require these packages.
+
+# Offline contextual sentence translation provider.
+argostranslate

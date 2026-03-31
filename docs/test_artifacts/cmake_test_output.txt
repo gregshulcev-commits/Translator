@@ -1,4 +1,6 @@
 [100%] Run automated tests
-................                                                         [100%]
-16 passed in 0.46s
+...................                                                      [100%]
+19 passed in 0.59s
 [100%] Built target test
+
+[exit code 0]

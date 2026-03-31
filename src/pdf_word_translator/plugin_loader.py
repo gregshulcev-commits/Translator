@@ -85,9 +85,10 @@ class PluginLoader:
     def _load_builtin_dictionary_plugins(self) -> list[DictionaryPlugin]:
         plugins: list[DictionaryPlugin] = []
 
-        # The small bundled technical glossary always has the highest priority.
-        if self._config.starter_dictionary_db.exists():
-            plugins.append(SQLiteDictionaryPlugin(self._config.starter_dictionary_db))
+        # Built-in starter packs are always available for both directions.
+        for bundled_db in (self._config.starter_dictionary_db, self._config.starter_dictionary_ru_en_db):
+            if bundled_db.exists():
+                plugins.append(SQLiteDictionaryPlugin(bundled_db))
 
         # User-installed dictionary packs are loaded afterwards.
         for db_path in sorted(self._config.runtime_dictionary_dir.glob("*.sqlite")):

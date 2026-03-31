@@ -10,6 +10,50 @@ from typing import List, Optional, Sequence, Tuple
 
 
 Rect = Tuple[float, float, float, float]
+TranslationDirection = str
+
+EN_RU: TranslationDirection = "en-ru"
+RU_EN: TranslationDirection = "ru-en"
+SUPPORTED_DIRECTIONS = (EN_RU, RU_EN)
+
+
+def direction_source_lang(direction: TranslationDirection) -> str:
+    if direction == RU_EN:
+        return "ru"
+    return "en"
+
+
+def direction_target_lang(direction: TranslationDirection) -> str:
+    if direction == RU_EN:
+        return "en"
+    return "ru"
+
+
+@dataclass(frozen=True)
+class DictionaryPackInfo:
+    """Metadata describing one installed or downloadable dictionary pack."""
+
+    pack_id: str
+    title: str
+    direction: TranslationDirection
+    category: str = "general"
+    description: str = ""
+    source: str = ""
+
+
+@dataclass(frozen=True)
+class ContextTranslationResult:
+    """Translation returned by the contextual/online/offline provider layer."""
+
+    provider_id: str
+    provider_name: str
+    status: str
+    text: str = ""
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok" and bool(self.text)
 
 
 @dataclass(frozen=True)
@@ -45,14 +89,7 @@ class DocumentSentence:
 
 @dataclass(frozen=True)
 class DictionaryEntry:
-    """Single dictionary entry.
-
-    Notes:
-    - ``headword`` is the canonical English base form.
-    - ``best_translation`` is the first translation shown in the panel.
-    - ``alternative_translations`` is an ordered list shown below it.
-    - ``examples`` is optional and may stay empty in the starter dictionary.
-    """
+    """Single dictionary entry."""
 
     headword: str
     normalized_headword: str

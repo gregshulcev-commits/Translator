@@ -36,6 +36,7 @@ class DocumentService:
         self._session: Optional[DocumentSession] = None
         self._render_cache: Dict[tuple[int, float], RenderedPage] = {}
         self._path: Optional[Path] = None
+        self._page_size_cache: Dict[int, tuple[float, float]] = {}
 
     @property
     def session(self) -> DocumentSession:
@@ -69,10 +70,16 @@ class DocumentService:
         self._active_plugin = plugin
         self._session = plugin.open(path)
         self._render_cache.clear()
+        self._page_size_cache.clear()
         self._path = path
 
     def page_count(self) -> int:
         return self.session.page_count()
+
+    def page_dimensions(self, page_index: int) -> tuple[float, float]:
+        if page_index not in self._page_size_cache:
+            self._page_size_cache[page_index] = self.session.page_size(page_index)
+        return self._page_size_cache[page_index]
 
     def render_page(self, page_index: int, zoom: float) -> RenderedPage:
         cache_key = (page_index, round(zoom, 2))
@@ -80,16 +87,6 @@ class DocumentService:
             image = self.session.render_page(page_index, zoom)
             self._render_cache[cache_key] = RenderedPage(page_index=page_index, zoom=zoom, image=image)
         return self._render_cache[cache_key]
-
-    def prewarm_neighbors(self, current_page: int, zoom: float) -> None:
-        """Pre-render adjacent pages.
-
-        The implementation is intentionally synchronous and tiny, but the method
-        is isolated so a future background worker can take it over.
-        """
-        for page_index in (current_page - 1, current_page + 1):
-            if 0 <= page_index < self.page_count():
-                self.render_page(page_index, zoom)
 
     def clear_cache(self) -> None:
         """Drop rendered page images, e.g. after a zoom change."""

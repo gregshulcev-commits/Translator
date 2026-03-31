@@ -10,14 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import List, Sequence
 import re
 
 from PIL import Image, ImageDraw, ImageFont
 
 from ..models import DocumentSentence, SearchHit, WordToken
 from ..plugin_api import DocumentPlugin, DocumentSession
-from ..utils.text_normalizer import EnglishWordNormalizer
+from ..utils.text_normalizer import WordNormalizer
+from ..utils.token_splitter import split_token_rect
 
 
 SENTENCE_END_RE = re.compile(r"[.!?…]$")
@@ -64,6 +65,9 @@ class TextDocumentSession(DocumentSession):
     def page_count(self) -> int:
         return len(self._pages)
 
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        return float(PAGE_WIDTH), float(PAGE_HEIGHT)
+
     def render_page(self, page_index: int, zoom: float):
         page = self._pages[page_index]
         if zoom == 1.0:
@@ -77,12 +81,10 @@ class TextDocumentSession(DocumentSession):
 
     def find_token_at(self, page_index: int, x: float, y: float) -> WordToken | None:
         tokens = self._pages[page_index].tokens
-
         for token in tokens:
             x0, y0, x1, y1 = token.rect
             if x0 <= x <= x1 and y0 <= y <= y1:
                 return token
-
         nearest: WordToken | None = None
         nearest_distance = float("inf")
         for token in tokens:
@@ -202,21 +204,20 @@ class TextDocumentSession(DocumentSession):
                     spacing_after = TITLE_SPACING if paragraph.style == "title" else PARAGRAPH_SPACING
                     x = MARGIN_X
                 draw.text((x, y), word, fill="#111827", font=font)
-                normalized = EnglishWordNormalizer.normalize(word)
-                token = WordToken(
-                    token_id=f"p{page_index}-w{token_counter}",
-                    text=word,
-                    normalized_text=normalized,
+                split_tokens = split_token_rect(
+                    word,
+                    (x, y, x + word_width, y + word_height),
+                    token_id_prefix=f"p{page_index}-w{token_counter}",
                     page_index=page_index,
-                    rect=(x, y, x + word_width, y + word_height),
                     block_no=0,
                     line_no=int((y - MARGIN_Y) // max(1, line_height)),
                     word_no=token_counter,
                 )
-                tokens.append(token)
-                sentence_words.append((word, token))
-                token_counter += 1
-                page_text_words.append(word)
+                for token in split_tokens:
+                    tokens.append(token)
+                    sentence_words.append((token.text, token))
+                    token_counter += 1
+                page_text_words.extend(token.text for token in split_tokens)
                 x += word_width + space_width
 
             y += line_height + spacing_after
@@ -260,24 +261,30 @@ class TextDocumentSession(DocumentSession):
         return preview[:limit]
 
     @staticmethod
-    def _text_width(font: ImageFont.FreeTypeFont, text: str) -> int:
+    def _text_width(font: ImageFont.ImageFont, text: str) -> int:
         bbox = font.getbbox(text)
-        return max(1, int(bbox[2] - bbox[0]))
+        return bbox[2] - bbox[0]
 
     @staticmethod
-    def _text_height(font: ImageFont.FreeTypeFont, text: str) -> int:
+    def _text_height(font: ImageFont.ImageFont, text: str) -> int:
         bbox = font.getbbox(text)
-        return max(1, int(bbox[3] - bbox[1]))
+        return bbox[3] - bbox[1]
 
 
 class TextDocumentPlugin(DocumentPlugin):
-    """Base class for plugins backed by ``TextDocumentSession``."""
+    """Base class for lightweight reflowable text document plugins."""
 
-    def __init__(self, extensions: Iterable[str]):
-        self._extensions = tuple(ext.lower() for ext in extensions)
+    def __init__(self, supported_extensions: Sequence[str]):
+        self._supported_extensions = tuple(extension.lower() for extension in supported_extensions)
+
+    def plugin_id(self) -> str:
+        raise NotImplementedError
 
     def supported_extensions(self):
-        return list(self._extensions)
+        return self._supported_extensions
 
     def can_open(self, path: Path) -> bool:
-        return path.suffix.lower() in self._extensions
+        return path.suffix.lower() in self.supported_extensions()
+
+    def open(self, path: Path) -> DocumentSession:
+        raise NotImplementedError

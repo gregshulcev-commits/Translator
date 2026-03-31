@@ -11,6 +11,10 @@
 - `docs/modules/document_service.md`
 - `docs/modules/dictionary_service.md`
 
+## Providers
+
+- `docs/modules/context_providers.md`
+
 ## Plugins
 
 - `docs/modules/document_pdf_pymupdf.md`
@@ -25,7 +29,9 @@
 - `docs/modules/dictionary_builder.md`
 - `docs/modules/freedict_importer.md`
 - `docs/modules/dictionary_installer.md`
+- `docs/modules/dictionary_catalog.md`
 - `docs/modules/text_normalizer.md`
+- `docs/modules/token_splitter.md`
 - `docs/modules/settings_store.md`
 - `docs/modules/logging_utils.md`
 
@@ -37,3 +43,4 @@
 
 - `docs/modules/import_dictionary.md`
 - `docs/modules/install_default_dictionaries.md`
+- `docs/modules/install_argos_model.md`

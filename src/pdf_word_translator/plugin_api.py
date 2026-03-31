@@ -1,8 +1,8 @@
 """Plugin interfaces for the MVP.
 
-The application currently ships with one document plugin and one dictionary
-plugin, but the interfaces are deliberately separated so that a future OCR or
-DOCX provider can be plugged in without changing the UI logic.
+The application currently ships with document, dictionary and optional context
+translation providers, but the interfaces are deliberately separated so that a
+future OCR or DOCX provider can be plugged in without changing the UI logic.
 """
 from __future__ import annotations
 
@@ -10,7 +10,15 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Iterable, List
 
-from .models import DictionaryEntry, DocumentSentence, LookupResult, SearchHit, WordToken
+from .models import (
+    ContextTranslationResult,
+    DictionaryPackInfo,
+    DocumentSentence,
+    LookupResult,
+    SearchHit,
+    TranslationDirection,
+    WordToken,
+)
 
 
 class DocumentSession(ABC):
@@ -18,6 +26,11 @@ class DocumentSession(ABC):
 
     @abstractmethod
     def page_count(self) -> int:
+        raise NotImplementedError
+
+    @abstractmethod
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        """Return page width/height in document coordinates (zoom == 1.0)."""
         raise NotImplementedError
 
     @abstractmethod
@@ -70,9 +83,33 @@ class DictionaryPlugin(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def lookup(self, word: str) -> LookupResult:
+    def pack_info(self) -> DictionaryPackInfo:
+        raise NotImplementedError
+
+    @abstractmethod
+    def supports(self, direction: TranslationDirection) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    def lookup(self, word: str, direction: TranslationDirection = "en-ru") -> LookupResult:
         raise NotImplementedError
 
     @abstractmethod
     def available_entries(self) -> int:
+        raise NotImplementedError
+
+
+class ContextTranslationProvider(ABC):
+    """Optional contextual translator for the second line in the compact panel."""
+
+    @abstractmethod
+    def provider_id(self) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def display_name(self) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def translate_text(self, text: str, direction: TranslationDirection) -> ContextTranslationResult:
         raise NotImplementedError
