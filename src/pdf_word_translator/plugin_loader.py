@@ -17,7 +17,9 @@ from .config import AppConfig
 from .plugin_api import DictionaryPlugin, DocumentPlugin
 from .plugins.dictionary_composite import CompositeDictionaryPlugin
 from .plugins.dictionary_sqlite import SQLiteDictionaryPlugin
+from .plugins.document_fb2 import Fb2DocumentPlugin
 from .plugins.document_pdf_pymupdf import PyMuPdfDocumentPlugin
+from .plugins.document_txt import PlainTextDocumentPlugin
 
 
 LOGGER = logging.getLogger(__name__)
@@ -52,20 +54,33 @@ class PluginLoader:
 
     def __init__(self, config: AppConfig):
         self._config = config
+        self._external_document_plugins: list[DocumentPlugin] = []
+        self._external_dictionary_plugins: list[DictionaryPlugin] = []
+        self._external_plugins_loaded = False
 
     def load(self) -> PluginRegistry:
+        self._ensure_external_plugins_loaded()
         registry = PluginRegistry(
-            document_plugins=[PyMuPdfDocumentPlugin()],
-            dictionary_plugins=self._load_builtin_dictionary_plugins(),
+            document_plugins=[
+                PyMuPdfDocumentPlugin(),
+                PlainTextDocumentPlugin(),
+                Fb2DocumentPlugin(),
+                *self._external_document_plugins,
+            ],
+            dictionary_plugins=[self.create_dictionary_plugin()],
         )
-        self._load_external_plugins(registry)
-        registry.dictionary_plugins = [CompositeDictionaryPlugin(registry.dictionary_plugins)]
         LOGGER.info(
             "Loaded %s document plugin(s) and %s dictionary plugin(s)",
             len(registry.document_plugins),
             len(registry.dictionary_plugins),
         )
         return registry
+
+    def create_dictionary_plugin(self) -> DictionaryPlugin:
+        """Rebuild the active composite dictionary from all installed packs."""
+        self._ensure_external_plugins_loaded()
+        plugins = [*self._load_builtin_dictionary_plugins(), *self._external_dictionary_plugins]
+        return CompositeDictionaryPlugin(plugins)
 
     def _load_builtin_dictionary_plugins(self) -> list[DictionaryPlugin]:
         plugins: list[DictionaryPlugin] = []
@@ -81,11 +96,17 @@ class PluginLoader:
             except Exception as exc:  # pragma: no cover - protective logging only
                 LOGGER.exception("Failed to load dictionary pack %s: %s", db_path, exc)
 
-        if not plugins:
+        if not plugins and not self._external_dictionary_plugins:
             raise RuntimeError("Не найдено ни одного словарного пакета SQLite")
         return plugins
 
-    def _load_external_plugins(self, registry: PluginRegistry) -> None:
+    def _ensure_external_plugins_loaded(self) -> None:
+        if self._external_plugins_loaded:
+            return
+        self._external_plugins_loaded = True
+        self._load_external_plugins()
+
+    def _load_external_plugins(self) -> None:
         plugin_dir = self._config.external_plugin_dir
         if not plugin_dir.exists():
             return
@@ -103,9 +124,9 @@ class PluginLoader:
                 plugin_instances = register()
                 for instance in plugin_instances:
                     if isinstance(instance, DocumentPlugin):
-                        registry.document_plugins.append(instance)
+                        self._external_document_plugins.append(instance)
                     elif isinstance(instance, DictionaryPlugin):
-                        registry.dictionary_plugins.append(instance)
+                        self._external_dictionary_plugins.append(instance)
                     else:
                         LOGGER.warning("Unsupported plugin instance from %s: %r", plugin_file, instance)
             except Exception as exc:  # pragma: no cover - error path only

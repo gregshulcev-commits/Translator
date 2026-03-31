@@ -11,6 +11,13 @@ class DictionaryService:
     def __init__(self, dictionary_plugin: DictionaryPlugin):
         self._dictionary_plugin = dictionary_plugin
 
+    def replace_plugin(self, dictionary_plugin: DictionaryPlugin) -> None:
+        """Hot-swap the active dictionary provider after an import/install step."""
+        closer = getattr(self._dictionary_plugin, "close", None)
+        if callable(closer):
+            closer()
+        self._dictionary_plugin = dictionary_plugin
+
     def lookup(self, word: str) -> LookupResult:
         return self._dictionary_plugin.lookup(word)
 

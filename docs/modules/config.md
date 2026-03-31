@@ -2,25 +2,25 @@
 
 ## Назначение
 
-Единая точка для путей проекта и runtime-каталогов.
+Хранит вычисление путей проекта и runtime-каталогов.
 
-## Основные константы
+## Основные пути
 
 - `PROJECT_ROOT`
 - `DATA_ROOT`
-- `DEFAULT_STARTER_CSV`
-- `DEFAULT_STARTER_DB`
 - `RUNTIME_DATA_DIR`
 - `RUNTIME_CACHE_DIR`
 - `RUNTIME_LOG_DIR`
 - `RUNTIME_DICTIONARY_DIR`
 - `RUNTIME_DOWNLOAD_DIR`
 - `EXTERNAL_PLUGIN_DIR`
+- `SETTINGS_FILE`
 
 ## `AppConfig`
 
-Содержит все разрешённые приложению пути и умеет создавать runtime-каталоги.
+Dataclass, которая собирает все пути в одном объекте и умеет создавать runtime-каталоги.
 
-## Изменение в v2
+## Что важно в v3
 
-Исправлена ошибка вычисления `PROJECT_ROOT`: теперь конфиг больше не выходит на уровень выше каталога проекта.
+- исправленный `PROJECT_ROOT` сохранён;
+- добавлен `settings_file` для persistent UI settings.

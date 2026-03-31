@@ -22,6 +22,14 @@ source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements.txt
 
+if ! python - <<'PY' >/dev/null 2>&1
+import tkinter
+PY
+then
+    echo "[WARN] tkinter is not available in the current Python environment."
+    echo "[WARN] On Fedora install it with: sudo dnf install python3-tkinter"
+fi
+
 export PYTHONPATH="$PROJECT_ROOT/src"
 python tools/install_default_dictionaries.py
 

@@ -29,6 +29,7 @@ RUNTIME_LOG_DIR = RUNTIME_CACHE_DIR / "logs"
 RUNTIME_DICTIONARY_DIR = RUNTIME_DATA_DIR / "dictionaries"
 RUNTIME_DOWNLOAD_DIR = RUNTIME_CACHE_DIR / "downloads"
 EXTERNAL_PLUGIN_DIR = RUNTIME_DATA_DIR / "plugins"
+SETTINGS_FILE = RUNTIME_DATA_DIR / "settings.json"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class AppConfig:
     runtime_dictionary_dir: Path = RUNTIME_DICTIONARY_DIR
     runtime_download_dir: Path = RUNTIME_DOWNLOAD_DIR
     external_plugin_dir: Path = EXTERNAL_PLUGIN_DIR
+    settings_file: Path = SETTINGS_FILE
 
     def ensure_runtime_directories(self) -> None:
         """Create runtime directories if they do not exist yet."""

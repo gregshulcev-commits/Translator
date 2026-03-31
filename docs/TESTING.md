@@ -7,9 +7,13 @@
 - нормализация словоформ;
 - lookup в SQLite-словаре;
 - импорт FreeDict TEI;
+- импорт CSV/копирование SQLite-паков;
 - корректность путей конфигурации;
 - PDF provider на синтетическом документе;
-- workflow от клика до перевода.
+- TXT plugin;
+- FB2 plugin;
+- workflow от клика до перевода;
+- сохранение UI settings.
 
 ### Интеграционные тесты
 
@@ -19,9 +23,11 @@
 ### GUI smoke test
 
 - создание окна;
-- открытие PDF;
+- открытие многостраничного PDF;
 - клик по слову;
-- обновление нижней панели перевода.
+- обновление нижней панели перевода;
+- scroll документа колесом мыши;
+- zoom по `Ctrl + колесо мыши`.
 
 ## Как запускать
 
@@ -33,18 +39,9 @@ xvfb-run -a python tests/smoke_gui.py
 
 ## Актуальный результат в этой сборке
 
-- `pytest`: 11 тестов, все проходят;
+- `pytest`: 16 тестов, все проходят;
 - GUI smoke test: проходит;
-- установщик словаря протестирован в sandbox в fallback-режиме без внешней сети.
+- `cmake --build build --target test`: проходит;
+- `cmake --build build --target install_dictionaries`: проходит в fallback-режиме без сети.
 
 Сырые артефакты лежат в `docs/test_artifacts/`.
-
-## Дополнительно проверено через CMake
-
-```bash
-cmake -S . -B build
-cmake --build build --target test
-cmake --build build --target install_dictionaries
-```
-
-Логи сохранены в `docs/test_artifacts/cmake_test_output.txt` и `docs/test_artifacts/cmake_install_dictionaries_output.txt`.

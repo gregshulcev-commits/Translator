@@ -14,6 +14,9 @@
 ## Plugins
 
 - `docs/modules/document_pdf_pymupdf.md`
+- `docs/modules/document_text_base.md`
+- `docs/modules/document_txt.md`
+- `docs/modules/document_fb2.md`
 - `docs/modules/dictionary_sqlite.md`
 - `docs/modules/dictionary_composite.md`
 
@@ -21,7 +24,9 @@
 
 - `docs/modules/dictionary_builder.md`
 - `docs/modules/freedict_importer.md`
+- `docs/modules/dictionary_installer.md`
 - `docs/modules/text_normalizer.md`
+- `docs/modules/settings_store.md`
 - `docs/modules/logging_utils.md`
 
 ## UI

@@ -13,11 +13,12 @@ from .services.translation_workflow import TranslationWorkflow
 from .ui.main_window import MainWindow
 from .utils.dictionary_builder import ensure_dictionary_database
 from .utils.logging_utils import setup_logging
+from .utils.settings_store import SettingsStore
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Offline PDF word translator MVP")
-    parser.add_argument("pdf", nargs="?", help="Optional PDF path to open on startup")
+    parser = argparse.ArgumentParser(description="Offline document word translator MVP")
+    parser.add_argument("document", nargs="?", help="Optional document path to open on startup")
     return parser
 
 
@@ -29,7 +30,8 @@ def main() -> int:
     ensure_dictionary_database(config.starter_dictionary_csv, config.starter_dictionary_db)
     setup_logging(config.runtime_log_dir)
 
-    registry = PluginLoader(config).load()
+    plugin_loader = PluginLoader(config)
+    registry = plugin_loader.load()
     dictionary_plugin = registry.default_dictionary_plugin()
     if dictionary_plugin is None:
         raise RuntimeError("Не найден словарный плагин")
@@ -37,20 +39,23 @@ def main() -> int:
     root = tk.Tk()
     root.option_add("*tearOff", False)
 
-    if args.pdf:
-        candidate = Path(args.pdf).expanduser().resolve()
-        document_plugin = registry.document_plugin_for(candidate)
-    else:
-        candidate = None
-        document_plugin = registry.document_plugins[0] if registry.document_plugins else None
+    candidate = None
+    if args.document:
+        candidate = Path(args.document).expanduser().resolve()
 
-    if document_plugin is None:
-        raise RuntimeError("Не найден плагин для PDF")
-
-    document_service = DocumentService(document_plugin)
+    document_service = DocumentService(registry.document_plugins)
     dictionary_service = DictionaryService(dictionary_plugin)
     workflow = TranslationWorkflow(document_service, dictionary_service)
-    window = MainWindow(root, config, document_service, dictionary_service, workflow)
+    settings_store = SettingsStore(config.settings_file)
+    window = MainWindow(
+        root,
+        config,
+        plugin_loader,
+        document_service,
+        dictionary_service,
+        workflow,
+        settings_store,
+    )
 
     if candidate is not None and candidate.exists():
         window.open_document_path(candidate)

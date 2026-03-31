@@ -33,6 +33,13 @@ class CompositeDictionaryPlugin(DictionaryPlugin):
     def available_entries(self) -> int:
         return sum(plugin.available_entries() for plugin in self._plugins)
 
+    def close(self) -> None:
+        """Forward close() to child plugins when they provide it."""
+        for plugin in self._plugins:
+            closer = getattr(plugin, "close", None)
+            if callable(closer):
+                closer()
+
     @property
     def plugins(self) -> list[DictionaryPlugin]:
         return list(self._plugins)

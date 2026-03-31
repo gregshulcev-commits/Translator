@@ -1,0 +1,283 @@
+"""Shared text-document session logic for TXT and FB2.
+
+The desktop MVP renders text-based formats into synthetic pages using Pillow so
+that the rest of the application can keep the same click-to-translate workflow
+used for PDF. Each word receives a bounding box in page coordinates, which
+means search, scrolling, highlighting and dictionary lookup all work through the
+same domain model.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Sequence, Tuple
+import re
+
+from PIL import Image, ImageDraw, ImageFont
+
+from ..models import DocumentSentence, SearchHit, WordToken
+from ..plugin_api import DocumentPlugin, DocumentSession
+from ..utils.text_normalizer import EnglishWordNormalizer
+
+
+SENTENCE_END_RE = re.compile(r"[.!?…]$")
+PAGE_WIDTH = 820
+PAGE_HEIGHT = 1180
+MARGIN_X = 72
+MARGIN_Y = 72
+PAGE_BODY_BOTTOM = PAGE_HEIGHT - MARGIN_Y
+BODY_FONT_SIZE = 20
+TITLE_FONT_SIZE = 28
+BODY_FONT = ImageFont.truetype("DejaVuSans.ttf", BODY_FONT_SIZE)
+TITLE_FONT = ImageFont.truetype("DejaVuSans.ttf", TITLE_FONT_SIZE)
+BODY_LINE_HEIGHT = BODY_FONT_SIZE + 10
+TITLE_LINE_HEIGHT = TITLE_FONT_SIZE + 12
+PARAGRAPH_SPACING = 12
+TITLE_SPACING = 18
+MAX_NEAREST_DISTANCE = 12.0
+
+
+@dataclass(frozen=True)
+class TextParagraph:
+    """One semantic text block extracted from a source file."""
+
+    text: str
+    style: str = "body"
+
+
+@dataclass
+class _TextPage:
+    image: Image.Image
+    tokens: list[WordToken]
+    sentence_words: list[tuple[str, WordToken]]
+    page_text: str
+
+
+class TextDocumentSession(DocumentSession):
+    """Synthetic document session for reflowable text formats."""
+
+    def __init__(self, path: Path, paragraphs: Sequence[TextParagraph]):
+        self._path = Path(path)
+        self._paragraphs = [paragraph for paragraph in paragraphs if paragraph.text.strip()]
+        self._pages = self._paginate(self._paragraphs)
+
+    def page_count(self) -> int:
+        return len(self._pages)
+
+    def render_page(self, page_index: int, zoom: float):
+        page = self._pages[page_index]
+        if zoom == 1.0:
+            return page.image
+        width = max(1, int(page.image.width * zoom))
+        height = max(1, int(page.image.height * zoom))
+        return page.image.resize((width, height), Image.Resampling.LANCZOS)
+
+    def get_tokens(self, page_index: int) -> List[WordToken]:
+        return list(self._pages[page_index].tokens)
+
+    def find_token_at(self, page_index: int, x: float, y: float) -> WordToken | None:
+        tokens = self._pages[page_index].tokens
+
+        for token in tokens:
+            x0, y0, x1, y1 = token.rect
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return token
+
+        nearest: WordToken | None = None
+        nearest_distance = float("inf")
+        for token in tokens:
+            x0, y0, x1, y1 = token.rect
+            cx = min(max(x, x0), x1)
+            cy = min(max(y, y0), y1)
+            distance = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            if distance < nearest_distance:
+                nearest_distance = distance
+                nearest = token
+        return nearest if nearest_distance <= MAX_NEAREST_DISTANCE else None
+
+    def get_sentence_for_token(self, token: WordToken) -> DocumentSentence:
+        sentence_words = self._pages[token.page_index].sentence_words
+        ordered_tokens = [item[1] for item in sentence_words]
+        token_index = next((idx for idx, current in enumerate(ordered_tokens) if current.token_id == token.token_id), None)
+        if token_index is None:
+            return DocumentSentence(page_index=token.page_index, text=token.text)
+
+        left = token_index
+        while left > 0:
+            previous_text = sentence_words[left - 1][0]
+            if SENTENCE_END_RE.search(previous_text):
+                break
+            left -= 1
+
+        right = token_index
+        while right + 1 < len(sentence_words):
+            current_text = sentence_words[right][0]
+            if SENTENCE_END_RE.search(current_text):
+                break
+            right += 1
+            if SENTENCE_END_RE.search(sentence_words[right][0]):
+                break
+
+        parts = [sentence_words[idx][0] for idx in range(left, right + 1)]
+        sentence = self._join_words(parts)
+        return DocumentSentence(page_index=token.page_index, text=sentence)
+
+    def search(self, query: str) -> List[SearchHit]:
+        lower_query = query.strip().lower()
+        if not lower_query:
+            return []
+
+        hits: list[SearchHit] = []
+        for page_index, page in enumerate(self._pages):
+            matching_tokens = [token for token in page.tokens if lower_query in token.text.lower() or lower_query in token.normalized_text]
+            if matching_tokens:
+                for token in matching_tokens:
+                    hits.append(
+                        SearchHit(
+                            page_index=page_index,
+                            rect=token.rect,
+                            preview=self._preview_for_query(page.page_text, query),
+                        )
+                    )
+                continue
+
+            if lower_query in page.page_text.lower() and page.tokens:
+                hits.append(
+                    SearchHit(
+                        page_index=page_index,
+                        rect=page.tokens[0].rect,
+                        preview=self._preview_for_query(page.page_text, query),
+                    )
+                )
+        return hits
+
+    def _paginate(self, paragraphs: Sequence[TextParagraph]) -> list[_TextPage]:
+        pages: list[_TextPage] = []
+        image, draw = self._new_page_canvas()
+        tokens: list[WordToken] = []
+        sentence_words: list[tuple[str, WordToken]] = []
+        page_text_words: list[str] = []
+        page_index = 0
+        token_counter = 0
+        y = MARGIN_Y
+
+        def flush_page() -> None:
+            nonlocal image, draw, tokens, sentence_words, page_text_words, page_index, token_counter, y
+            pages.append(
+                _TextPage(
+                    image=image,
+                    tokens=list(tokens),
+                    sentence_words=list(sentence_words),
+                    page_text=self._join_words(page_text_words),
+                )
+            )
+            page_index += 1
+            token_counter = 0
+            image, draw = self._new_page_canvas()
+            tokens = []
+            sentence_words = []
+            page_text_words = []
+            y = MARGIN_Y
+
+        for paragraph in paragraphs:
+            font = TITLE_FONT if paragraph.style == "title" else BODY_FONT
+            line_height = TITLE_LINE_HEIGHT if paragraph.style == "title" else BODY_LINE_HEIGHT
+            spacing_after = TITLE_SPACING if paragraph.style == "title" else PARAGRAPH_SPACING
+            words = paragraph.text.split()
+            if not words:
+                continue
+
+            x = MARGIN_X
+            for word in words:
+                word_width = self._text_width(font, word)
+                word_height = self._text_height(font, word)
+                space_width = self._text_width(font, " ")
+                if x > MARGIN_X and x + word_width > PAGE_WIDTH - MARGIN_X:
+                    x = MARGIN_X
+                    y += line_height
+                if y + line_height > PAGE_BODY_BOTTOM:
+                    flush_page()
+                    font = TITLE_FONT if paragraph.style == "title" else BODY_FONT
+                    line_height = TITLE_LINE_HEIGHT if paragraph.style == "title" else BODY_LINE_HEIGHT
+                    spacing_after = TITLE_SPACING if paragraph.style == "title" else PARAGRAPH_SPACING
+                    x = MARGIN_X
+                draw.text((x, y), word, fill="#111827", font=font)
+                normalized = EnglishWordNormalizer.normalize(word)
+                token = WordToken(
+                    token_id=f"p{page_index}-w{token_counter}",
+                    text=word,
+                    normalized_text=normalized,
+                    page_index=page_index,
+                    rect=(x, y, x + word_width, y + word_height),
+                    block_no=0,
+                    line_no=int((y - MARGIN_Y) // max(1, line_height)),
+                    word_no=token_counter,
+                )
+                tokens.append(token)
+                sentence_words.append((word, token))
+                token_counter += 1
+                page_text_words.append(word)
+                x += word_width + space_width
+
+            y += line_height + spacing_after
+            if y + BODY_LINE_HEIGHT > PAGE_BODY_BOTTOM and paragraph is not paragraphs[-1]:
+                flush_page()
+
+        pages.append(
+            _TextPage(
+                image=image,
+                tokens=list(tokens),
+                sentence_words=list(sentence_words),
+                page_text=self._join_words(page_text_words),
+            )
+        )
+        return pages
+
+    @staticmethod
+    def _new_page_canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
+        image = Image.new("RGB", (PAGE_WIDTH, PAGE_HEIGHT), "white")
+        draw = ImageDraw.Draw(image)
+        return image, draw
+
+    @staticmethod
+    def _join_words(words: List[str]) -> str:
+        sentence = " ".join(words)
+        sentence = re.sub(r"\s+([,.;:!?])", r"\1", sentence)
+        sentence = re.sub(r"\(\s+", "(", sentence)
+        sentence = re.sub(r"\s+\)", ")", sentence)
+        return sentence.strip()
+
+    @staticmethod
+    def _preview_for_query(text: str, query: str, limit: int = 140) -> str:
+        lower_text = text.lower()
+        lower_query = query.lower()
+        position = lower_text.find(lower_query)
+        if position == -1:
+            return text[:limit].replace("\n", " ")
+        start = max(0, position - 40)
+        end = min(len(text), position + len(query) + 60)
+        preview = text[start:end].replace("\n", " ")
+        return preview[:limit]
+
+    @staticmethod
+    def _text_width(font: ImageFont.FreeTypeFont, text: str) -> int:
+        bbox = font.getbbox(text)
+        return max(1, int(bbox[2] - bbox[0]))
+
+    @staticmethod
+    def _text_height(font: ImageFont.FreeTypeFont, text: str) -> int:
+        bbox = font.getbbox(text)
+        return max(1, int(bbox[3] - bbox[1]))
+
+
+class TextDocumentPlugin(DocumentPlugin):
+    """Base class for plugins backed by ``TextDocumentSession``."""
+
+    def __init__(self, extensions: Iterable[str]):
+        self._extensions = tuple(ext.lower() for ext in extensions)
+
+    def supported_extensions(self):
+        return list(self._extensions)
+
+    def can_open(self, path: Path) -> bool:
+        return path.suffix.lower() in self._extensions

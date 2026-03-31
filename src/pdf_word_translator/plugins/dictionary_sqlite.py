@@ -59,6 +59,10 @@ class SQLiteDictionaryPlugin(DictionaryPlugin):
         row = self._connection.execute("SELECT COUNT(*) AS count FROM entries").fetchone()
         return int(row["count"])
 
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._connection.close()
+
     def _lookup_exact_form(self, normalized_form: str) -> DictionaryEntry | None:
         row = self._connection.execute(
             """

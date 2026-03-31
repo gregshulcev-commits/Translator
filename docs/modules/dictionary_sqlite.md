@@ -2,17 +2,17 @@
 
 ## Назначение
 
-Реализация `DictionaryPlugin`, работающая по внутренней SQLite-схеме.
+Dictionary plugin поверх SQLite runtime-схемы.
 
-## Lookup-логика
+## Что делает
 
-1. получает кандидатные формы из `EnglishWordNormalizer`;
-2. ищет по `forms.normalized_form`;
-3. fallback по `entries.normalized_headword`;
-4. гидратирует `DictionaryEntry` из таблиц `entries/senses/examples/transcriptions`.
+- выполняет lookup по `forms.normalized_form`;
+- делает fallback по `entries.normalized_headword`;
+- hydrat'ит `DictionaryEntry` с senses, examples и transcription;
+- возвращает `LookupResult` с candidate forms.
 
-## Почему SQLite
+## Особенности
 
-- прозрачно;
-- легко переносить и копировать как словарный пак;
-- хорошо подходит для офлайн lookup.
+- использует `EnglishWordNormalizer.candidate_forms()`;
+- подключается к одному SQLite-паку;
+- в v3 получил `close()` для корректного освобождения SQLite connection при hot-reload словарей.

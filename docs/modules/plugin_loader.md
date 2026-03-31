@@ -2,25 +2,32 @@
 
 ## Назначение
 
-Собирает набор доступных плагинов на старте приложения.
+Собирает набор доступных plugins на старте приложения.
 
 ## Что загружается
 
-### Документы
+### Document plugins
 
 - `PyMuPdfDocumentPlugin`
+- `PlainTextDocumentPlugin`
+- `Fb2DocumentPlugin`
 
-### Словари
+### Dictionary plugins
 
 - встроенный технический словарь из `data/starter_dictionary.sqlite`;
 - все `*.sqlite` паки из `runtime_dictionary_dir`;
-- итоговый composite plugin, который ищет по ним последовательно.
+- итоговый `CompositeDictionaryPlugin`.
 
-## Приоритет словарей
+## Особенность v3
 
-1. встроенный technical glossary;
-2. пользовательские SQLite-паки.
+Появился метод `create_dictionary_plugin()`, который заново строит composite plugin из текущих словарных паков. Это используется GUI после установки нового словаря без перезапуска приложения.
 
 ## Внешние плагины
 
-Поддерживаются Python-файлы из каталога `~/.local/share/pdf_word_translator_mvp/plugins/`, если они экспортируют `register_plugins()`.
+Поддерживаются Python-файлы из:
+
+```text
+~/.local/share/pdf_word_translator_mvp/plugins/
+```
+
+если они экспортируют `register_plugins()`.
