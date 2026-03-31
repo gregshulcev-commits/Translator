@@ -1,14 +1,8 @@
-# Отчёт о тестировании v9
+# Отчёт о тестировании v10
 
-## Дата
+## 1. Regression suite
 
-- 2026-03-30
-
-## Проверенный объём
-
-### 1. Автоматические Python-тесты
-
-Запуск:
+Команда:
 
 ```bash
 PYTHONPATH=src pytest
@@ -16,51 +10,43 @@ PYTHONPATH=src pytest
 
 Результат:
 
-- **58 passed, 2 skipped**.
+- **60 passed, 2 skipped**.
 
-В проверку вошли:
+Покрыты в том числе:
 
-- document plugins и dictionary workflow;
-- Argos manager;
-- compact context extraction;
-- dictionary manager;
-- `mobile_api.py`;
-- Android branch layout checks;
-- LibreTranslate/UI regression tests;
-- security hardening tests.
+- document / dictionary plugins;
+- text normalization;
+- context extraction;
+- settings store;
+- GUI-friendly dictionary/Argos helpers;
+- install/update manager helper functions.
 
-### 2. Desktop GUI smoke test
+## 2. GUI smoke test
 
-Запуск:
+Команда:
 
 ```bash
-xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
+xvfb-run -a env PYTHONPATH=src python3 tests/smoke_gui.py
 ```
 
 Результат:
 
-- тест проходит без падения;
-- приложение открывает тестовый PDF;
-- словарный lookup и базовый viewer workflow сохраняются рабочими;
-- интеграция нового окна настроек не ломает desktop bootstrap.
+- smoke test прошёл успешно;
+- приложение открывается;
+- встроенные словари подключаются;
+- PDF открывается без падения.
 
-### 3. Ручной review в рамках v9 usability-итерации
+## 3. Ручной review в рамках v10 install/update-итерации
 
-Проверены и обновлены:
+Проверено:
 
-- `install_app.sh` и сценарий desktop integration;
-- `settings_dialog.py`;
-- `dictionary_manager.py`;
-- `context_extraction.py`;
-- интеграция новых UX-сценариев в `main_window.py`.
+- наличие root-level скриптов `install_app.sh`, `uninstall_app.sh`, `update_app.sh`, `uninstall_previous_v9.sh`;
+- отделение installed payload от runtime data;
+- наличие installation manifest;
+- наличие миграционного сценария для предыдущей установки `v9`;
+- совместимость новой схемы с будущим переходом на RPM;
+- отделение runtime requirements от dev requirements.
 
-## Что не проверено в этой среде
+## 4. Вывод
 
-- Gradle sync Android-проекта;
-- финальная сборка APK;
-- запуск Android-клиента на устройстве;
-- реальный сетевой вызов cloud providers с production credentials.
-
-## Вывод
-
-Source `v9` стабилен для desktop-ветки, содержит Android source branch, проходит Python regression suite и GUI smoke test, а также добавляет установщик приложения, отдельное окно настроек и GUI-управление словарями / Argos без отката прежних исправлений.
+Source `v10` стабилен для desktop-ветки, содержит Android source branch, проходит Python regression suite и GUI smoke test, а также добавляет управляемую схему установки, удаления и обновления без отката прежних исправлений usability-итерации.

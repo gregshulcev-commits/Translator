@@ -1,8 +1,8 @@
-# Архитектура MVP v9
+# Архитектура MVP v10
 
 ## Назначение
 
-`v9` сохраняет принятую архитектуру проекта:
+`v10` сохраняет принятую архитектуру проекта:
 
 1. **desktop application** на Python + Tkinter;
 2. **android-client** как отдельная APK/source-ветка;
@@ -12,7 +12,8 @@
 
 - viewer и platform UI могут быть разными;
 - словарный формат, модели данных и lookup-логика остаются общими;
-- контекстный/нейронный перевод остаётся optional-слоем и не раздувает ядро.
+- контекстный/нейронный перевод остаётся optional-слоем и не раздувает ядро;
+- install/update lifecycle теперь выделен в отдельный слой, чтобы desktop-приложение было проще сопровождать и позже упаковать в RPM.
 
 ## Слои системы
 
@@ -87,7 +88,33 @@
 - persistence пользовательских настроек;
 - lifecycle helper для Argos.
 
-### 5. Mobile Bridge Layer
+### 5. Desktop Installation Lifecycle Layer
+
+Основные файлы:
+
+- `tools/desktop_manager.py`
+- `install_app.sh`
+- `uninstall_app.sh`
+- `update_app.sh`
+- `uninstall_previous_v9.sh`
+
+Ответственность:
+
+- установка desktop payload в управляемый пользовательский каталог;
+- создание `.venv` внутри установленной копии;
+- переиспользование системных Python-пакетов через `--system-site-packages`;
+- запись installation manifest;
+- создание launcher / updater / uninstaller;
+- обновление desktop-копии из Git-репозитория;
+- миграция со старой `v9` launcher-based схемы.
+
+Это отдельный слой, а не часть GUI. Благодаря этому install/update logic:
+
+- можно вызывать из терминала;
+- можно позднее обернуть в GUI или RPM hooks;
+- проще тестировать и сопровождать отдельно от viewer/UI.
+
+### 6. Mobile Bridge Layer
 
 Файл:
 
@@ -107,7 +134,7 @@ Bridge остаётся:
 - lookup слова;
 - JSON-friendly payloads для Kotlin/Chaquopy.
 
-### 6. Android Client Layer
+### 7. Android Client Layer
 
 Директория:
 
@@ -121,16 +148,29 @@ Bridge остаётся:
 - dictionary bridge;
 - asset bootstrap.
 
-## Что именно меняется в `v9`
+## Что меняется именно в v10
 
-### Удобство использования вынесено в отдельные узлы
+### Установка перестаёт зависеть от распакованной папки
 
-Новые крупные элементы архитектуры:
+В `v9` launcher ссылался на исходную директорию, из которой запускался installer.
 
-- `SettingsDialog` как единый центр GUI-настроек;
-- `install_app.sh` как пользовательский desktop installer;
-- `context_extraction.py` как отдельный слой подготовки короткого контекста;
-- `dictionary_manager.py` как слой безопасного GUI-удаления runtime-словарей.
+В `v10` payload копируется в:
+
+```text
+~/.local/share/pdf_word_translator_mvp_install/app/current/
+```
+
+Это снижает хрупкость desktop-установки и делает жизненный цикл приложения ближе к пакетной модели.
+
+### Runtime data отделены от installed payload
+
+Отдельно хранятся:
+
+- **payload** приложения;
+- **runtime data** пользователя;
+- **install metadata**.
+
+Это важно и для обслуживания, и для будущей RPM-упаковки.
 
 ### Provider layer остаётся отдельным
 
@@ -156,3 +196,12 @@ Bridge остаётся:
 ### GUI-удаление словарей ограничено runtime-папкой
 
 Даже при работе из окна настроек приложение не должно иметь возможность удалять произвольные файлы. Поэтому GUI-удаление разрешено только для пользовательских SQLite-паков внутри runtime directory.
+
+## Архитектурная подготовка к RPM
+
+`v10` ещё не содержит готовый RPM, но в коде уже предусмотрено разделение, полезное для упаковки:
+
+- install/update logic собрана в отдельный manager;
+- payload и runtime data не смешиваются;
+- launcher-скрипты отделены от кода приложения;
+- installation manifest хранит служебную информацию отдельно от пользовательских настроек.

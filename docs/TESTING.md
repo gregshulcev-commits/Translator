@@ -1,61 +1,49 @@
-# Тестирование MVP v9
+# Тестирование MVP v10
 
-## Базовый набор команд
+## Автоматические проверки
+
+### Python regression suite
+
+Запуск:
 
 ```bash
-source .venv/bin/activate
+python3 -m pip install -r requirements-dev.txt
 PYTHONPATH=src pytest
-xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 ```
 
-## Что покрывает `pytest`
+Что покрывается:
 
-### Desktop core
+- базовая конфигурация и пути;
+- нормализация текста;
+- словарные плагины и импорт;
+- работа с контекстом;
+- GUI-friendly сценарии Argos/runtime management;
+- безопасное управление пользовательскими словарями;
+- служебные функции install/update manager.
 
-- document plugins для PDF / TXT / FB2;
-- dictionary lookup;
-- direction switching `EN ↔ RU`;
-- workflow и регрессии предыдущих итераций.
+### GUI smoke test
 
-### Provider layer
+Запуск:
 
-- Argos manager helpers;
-- GUI-friendly установка optional runtime Argos;
-- LibreTranslate URL normalization и diagnostics;
-- fallback JSON -> form-urlencoded;
-- Yandex provider configuration checks.
+```bash
+xvfb-run -a env PYTHONPATH=src python3 tests/smoke_gui.py
+```
 
-### UX / settings / dictionaries
+Что проверяется:
 
-- compact context extraction;
-- безопасное удаление пользовательских словарей;
-- сохранение и нормализация UI/provider settings.
+- создание окна приложения;
+- загрузка встроенных словарей;
+- открытие тестового PDF;
+- отсутствие падения на основном desktop-сценарии.
 
-### Security hardening
+## Текущее состояние на исходниках v10
 
-- restricted permissions для `settings.json`;
-- external plugins disabled-by-default и explicit enable path;
-- `mobile_api.py` rejects non-file dictionary paths.
+- `pytest`: **60 passed, 2 skipped**;
+- GUI smoke test: проходит;
+- Android-ветка проверена на уровне структуры проекта и Python bridge;
+- финальная APK-сборка в этой среде не выполнялась.
 
-## GUI smoke test
+## Артефакты
 
-`tests/smoke_gui.py` проверяет:
-
-- создание окна;
-- открытие PDF;
-- базовый click-to-translate сценарий;
-- scroll / zoom;
-- отсутствие падения после `v9` usability-обновления.
-
-## Что не покрыто в этой среде
-
-- реальная сборка Android APK;
-- запуск на устройстве/эмуляторе;
-- end-to-end проверка cloud providers с реальными credentials.
-
-## Актуальный результат
-
-На исходниках `v9`:
-
-- `pytest`: **58 passed, 2 skipped**;
-- desktop GUI smoke test: проходит.
+- `docs/test_artifacts/pytest_output.txt`
+- `docs/test_artifacts/smoke_output.txt`

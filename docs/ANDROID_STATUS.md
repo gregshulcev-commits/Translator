@@ -1,58 +1,38 @@
-# Android-статус v9
+# Android-статус v10
 
-## Текущее состояние
+## Общий статус
 
-Android-ветка входит в архив как **исходный Gradle-проект**, но не как уже собранный APK.
+Android-ветка по-прежнему включена в архив как **исходный код**, а не как собранный APK.
 
-В `v9` сохранены и синхронизированы:
+В `v10` сохранены и синхронизированы:
 
 - `android-client/`;
 - `src/pdf_word_translator/mobile_api.py`;
-- bundled SQLite assets;
 - Kotlin UI prototype;
 - Chaquopy bridge;
-- PdfRenderer prototype.
+- PdfRenderer prototype;
+- bundled SQLite assets.
 
-## Что уже реализовано в source branch
+## Что умеет Android branch сейчас
 
-- открытие PDF через системный picker;
-- базовый рендер PDF-страниц;
-- переход между страницами;
-- словарный lookup по введённому слову;
-- переключение `EN → RU` / `RU → EN`;
-- bootstrap встроенных SQLite-словарей из assets;
-- вызов общего Python-слоя через `mobile_api.py`.
+- открывать PDF через системный picker;
+- выполнять базовый рендер страниц через `PdfRenderer`;
+- листать страницы;
+- выполнять dictionary lookup по введённому слову;
+- переключать направление `EN → RU` / `RU → EN`;
+- использовать общую Python dictionary logic через `mobile_api.py`.
 
-## Build identifiers
+## Что пока не закрыто
 
-В Android module сейчас зафиксировано:
+- tap-to-word selection в PDF viewer;
+- финальная воспроизводимая APK-сборка в текущем рабочем окружении;
+- готовый Gradle wrapper внутри поставки.
 
-- `versionCode = 9`;
-- `versionName = "0.9.0-v9-usability"`.
+## Маркеры версии Android branch
 
-## Что не было выполнено в этой среде
+- `versionCode = 10`;
+- `versionName = "1.0.0-v10-install-management"`.
 
-Не проверялись:
+## Почему APK не собран в этом архиве
 
-- Gradle sync;
-- реальная сборка APK;
-- запуск на физическом устройстве;
-- запуск на Android emulator.
-
-Причина: в рабочем окружении не было Android SDK и системного Gradle.
-
-## Как собирать дальше
-
-Рекомендуемый путь:
-
-1. открыть `android-client/` в Android Studio;
-2. дать IDE синхронизировать проект;
-3. проверить установленный Android SDK;
-4. собрать `debug` APK из IDE.
-
-## Следующие этапы Android-ветки
-
-- tap-to-word selection по PDF;
-- точная привязка слова к координатам Android viewer;
-- отдельный Android UX для context translation;
-- packaging pipeline с готовым wrapper и воспроизводимой сборкой APK.
+Причина не изменилась: в текущем рабочем окружении не было Android SDK и системного Gradle, поэтому в `v10` включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.

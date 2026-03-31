@@ -12,8 +12,8 @@ android {
         applicationId = "com.oai.pdfwordtranslator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9.0-v9-usability"
+        versionCode = 10
+        versionName = "1.0.0-v10-install-management"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

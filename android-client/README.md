@@ -1,75 +1,36 @@
-# Android client prototype (APK branch v9)
+# Android client prototype (APK branch v10)
 
-Эта директория содержит **отдельную Android-ветку** проекта `pdf_word_translator_mvp_v9`.
+Эта директория содержит **отдельную Android-ветку** проекта `pdf_word_translator_mvp_v10`.
 
-## Основной смысл ветки
+## Что находится внутри
 
-- desktop GUI остаётся на **Tkinter**;
-- Android-клиент строится **отдельно**, на нативном Android UI;
-- словарный слой переиспользуется из Python через **Chaquopy**;
-- PDF-страницы рендерятся нативно через `PdfRenderer`.
+- Kotlin UI prototype;
+- Chaquopy bridge к Python-коду словарного ядра;
+- PdfRenderer-based viewer prototype;
+- bootstrap встроенных SQLite-словарей из assets.
 
-## Что уже есть
+## Что обновлено в v10
 
-- `MainActivity.kt` — стартовый Android UI;
-- `DictionaryBridge.kt` — вызов `pdf_word_translator.mobile_api` из Kotlin;
-- `AssetBootstrap.kt` — копирование встроенных SQLite-словарей из assets в `filesDir`;
-- `PdfPageRenderer.kt` — базовый рендер PDF-страниц;
-- assets со стартовыми EN→RU и RU→EN словарями;
-- Gradle-конфиги для `com.android.application`, Kotlin и `com.chaquo.python`.
+- Android markers синхронизированы с общей версией проекта;
+- `versionCode = 10`;
+- `versionName = "1.0.0-v10-install-management"`;
+- desktop-часть проекта переведена на новую install/update архитектуру, Android-исходники оставлены как source branch без изменений модели взаимодействия с `mobile_api.py`.
 
-## Что обновлено в v9
+## Что уже умеет ветка
 
-- Android-ветка сохранена после слияния с desktop bugfix-веткой;
-- `mobile_api.py` дополнительно усилен проверкой путей словарей;
-- Android module получил новый идентификатор сборки:
-  - `versionCode = 9`;
-  - `versionName = "0.9.0-v9-usability"`.
+- открыть PDF через системный picker;
+- отрендерить страницу;
+- переключать страницы;
+- выполнить lookup по введённому слову;
+- переключать направление `EN ↔ RU`;
+- использовать bundled SQLite dictionaries.
 
-## Что уже умеет APK-ветка
+## Что ещё не закрыто
 
-- открывать PDF через системный picker;
-- рендерить страницы PDF внутри Android-клиента;
-- листать страницы кнопками;
-- выполнять словарный lookup по введённому слову;
-- переключать направления `EN → RU` и `RU → EN`;
-- использовать те же SQLite-словари, что и desktop-ветка.
+- tap-to-word selection внутри PDF viewer;
+- финальная reproducible APK-сборка;
+- готовый release APK в архиве.
 
-## Что ещё не реализовано
+## Почему в архиве нет APK
 
-- tap-to-word selection по PDF-странице;
-- точное восстановление word coordinates внутри Android PDF viewer;
-- OCR;
-- контекстный neural translation provider внутри APK;
-- packaging pipeline с готовым `gradlew` и собранным `apk` прямо в этом архиве.
-
-## Как открыть проект в Android Studio
-
-1. Откройте Android Studio.
-2. Выберите **Open** и укажите директорию `android-client/`.
-3. Дайте IDE синхронизировать Gradle-проект.
-4. Убедитесь, что Android SDK установлен, а `minSdk 24+` поддерживается выбранным эмулятором/устройством.
-5. Запустите `app` на устройстве или эмуляторе.
-
-## Сборка
-
-В архиве по-прежнему **нет готового APK** и **нет Gradle wrapper**.
-
-Причина не изменилась: в текущем рабочем окружении не было Android SDK и системного Gradle, поэтому в `v9` включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.
-
-Рекомендуемый путь сборки:
-
-- открыть `android-client/` в Android Studio;
-- позволить IDE подтянуть Android Gradle Plugin и зависимости;
-- после успешного sync собрать `debug` APK из IDE.
-
-## Как связаны Android и desktop-ветки
-
-Python-модуль `src/pdf_word_translator/mobile_api.py` не зависит от Tkinter и viewer-части. Он отвечает только за:
-
-- подключение SQLite-словарей;
-- краткое описание активных паков;
-- lookup слова;
-- JSON-friendly ответы для Kotlin.
-
-Поэтому дальнейшее развитие Android-клиента можно делать отдельно, не ломая desktop GUI.
+В текущем рабочем окружении не было Android SDK и системного Gradle, поэтому в `v10` включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.

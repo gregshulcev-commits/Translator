@@ -34,4 +34,4 @@ install(DIRECTORY src data docs tests tools scripts
         DESTINATION .
         PATTERN "__pycache__" EXCLUDE
         PATTERN ".pytest_cache" EXCLUDE)
-install(FILES CMakeLists.txt README.md requirements.txt pytest.ini DESTINATION .)
+install(FILES CMakeLists.txt README.md requirements.txt requirements-dev.txt pytest.ini install_app.sh uninstall_app.sh update_app.sh uninstall_previous_v9.sh DESTINATION .)

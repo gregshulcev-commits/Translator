@@ -1,36 +1,29 @@
-# Development log
+# Лог разработки
 
-## 2026-03-30 — MVP v9 usability update
+## 2026-03-31 — MVP v10 install/update lifecycle
 
-Сделано поверх merged source `v8`:
+Сделано:
 
-- проектная версия поднята до `v9`;
-- добавлен root-level установщик `install_app.sh`;
-- установщик создаёт launcher и desktop entry для Linux;
-- добавлено отдельное notebook-окно настроек;
-- размер UI-шрифта перенесён из toolbar в настройки;
-- Argos runtime теперь можно установить из GUI;
-- Argos-модели можно полностью вести из GUI без обязательного терминала;
-- добавлен GUI-менеджмент установленных словарей с безопасным удалением пользовательских runtime-паков;
-- извлечение контекста вынесено в отдельный helper и ограничено текущим блоком/строкой;
-- обновлены документация и тестовые артефакты;
-- Android source branch синхронизирован на `versionCode = 9`.
+- проектная версия поднята до `v10`;
+- добавлен `tools/desktop_manager.py` как единая точка install/update/uninstall логики;
+- добавлены пользовательские скрипты `install_app.sh`, `uninstall_app.sh`, `update_app.sh`;
+- добавлен миграционный скрипт `uninstall_previous_v9.sh` для удаления старой установки `v9`;
+- схема установки изменена: payload больше не зависит от исходной распакованной папки;
+- установленный desktop payload теперь живёт в `~/.local/share/pdf_word_translator_mvp_install/app/current/`;
+- launcher, updater и uninstaller устанавливаются в `~/.local/bin/`;
+- добавлен installation manifest с полями версии, payload path, repo URL, branch и source commit;
+- update flow теперь может проверять Git remote через `git ls-remote`, скачивать свежую ревизию и переустанавливать приложение;
+- installer переведён на `venv --system-site-packages`, чтобы использовать уже имеющиеся системные пакеты и доустанавливать только недостающее;
+- runtime requirements отделены от dev requirements: добавлен `requirements-dev.txt`.
 
-## Источник версии
+Почему принято именно так:
 
-`v9` выбран как следующая проектная версия после максимальной версии в текущих исходниках (`v8`).
+- пользователь явно попросил удобную установку, удаление и обновление;
+- новая схема ближе к будущему RPM и меньше зависит от расположения исходников;
+- separation между payload, runtime data и install metadata уменьшает хрупкость системы.
 
-## 2026-03-30 — MVP v8 merge
+Ограничения итерации:
 
-Сделано в рамках слияния двух исходных архивов:
-
-- выбран `v7` как базовая ветка с Android/APK source branch;
-- поверх неё перенесены исправления из fixed-ветки для `context_providers.py`, `main_window.py` и `settings_store.py`;
-- сохранён `mobile_api.py` и Android layout из `v7`;
-- сохранён read-only Argos help dialog с кнопкой копирования;
-- возвращены responsive-исправления для каталога словарей, окна Argos и настройки провайдеров;
-- возвращены улучшения LibreTranslate;
-- `settings.json` переведён на атомарное сохранение и ограниченные права доступа `0600` на POSIX;
-- external plugins переведены в режим explicit opt-in через `PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1`;
-- `mobile_api.py` усилен проверкой dictionary paths на regular files;
-- добавлены тесты на LibreTranslate/UI bugfixes и security hardening.
+- RPM пока не собран;
+- update flow ориентирован на Git/GitHub branch, а не на GitHub Releases;
+- rollback до предыдущего payload пока не вынесен отдельной пользовательской командой.

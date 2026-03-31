@@ -20,4 +20,4 @@ if [[ -z "$PYTHON_BIN" ]]; then
     exit 1
 fi
 
-exec "$PYTHON_BIN" "$PROJECT_ROOT/tools/desktop_manager.py" install --source-root "$PROJECT_ROOT" "$@"
+exec "$PYTHON_BIN" "$PROJECT_ROOT/tools/desktop_manager.py" update "$@"
