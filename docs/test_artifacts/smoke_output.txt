@@ -1,0 +1,5 @@
+/opt/pyvenv/lib/python3.13/site-packages/pronouncing/__init__.py:3: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream
+2026-03-21 08:28:44 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pdf_word_translator_mvp/data/starter_dictionary.sqlite
+2026-03-21 08:28:44 | INFO | pdf_word_translator.services.document_service | Opening document: /tmp/tmpfuutz66a/gui.pdf
+2026-03-21 08:28:44 | INFO | pdf_word_translator.plugins.document_pdf_pymupdf | Using PyMuPDF document provider for /tmp/tmpfuutz66a/gui.pdf
