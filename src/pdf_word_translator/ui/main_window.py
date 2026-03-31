@@ -45,6 +45,7 @@ from ..utils.argos_manager import (
     argos_direction_ready,
     import_argos_model_from_path,
     install_argos_model_for_direction,
+    install_argos_runtime,
     list_argos_models,
 )
 from ..utils.dictionary_catalog import DictionaryPackSpec
@@ -57,6 +58,7 @@ from ..utils.dictionary_installer import (
     install_sqlite_pack,
 )
 from ..utils.settings_store import SettingsStore, UiSettings
+from .settings_dialog import SettingsDialog
 
 
 LOGGER = logging.getLogger(__name__)
@@ -154,6 +156,7 @@ class MainWindow:
         self._argos_status_var: tk.StringVar | None = None
         self._argos_hint_var: tk.StringVar | None = None
         self._argos_runtime_state: ArgosRuntimeState | None = None
+        self._settings_dialog: SettingsDialog | None = None
 
         self._build_window()
         self._schedule_context_result_poll()
@@ -347,16 +350,18 @@ class MainWindow:
                 command=self.on_provider_menu_change,
             )
         self.translate_menu.add_cascade(label="Контекстный перевод", menu=provider_menu)
-        self.translate_menu.add_command(label="Настроить текущий провайдер…", command=self.show_provider_settings_dialog)
+        self.translate_menu.add_command(label="Настройки перевода…", command=self.show_provider_settings_dialog)
         self.translate_menu.add_command(label="Офлайн-модели Argos…", command=self.show_argos_model_manager)
         self.translate_menu.add_command(label="Как установить Argos…", command=self.show_argos_installation_help)
         self.menu_bar.add_cascade(label="Перевод", menu=self.translate_menu)
 
-        view_menu = tk.Menu(self.menu_bar)
-        view_menu.add_command(label="A+ Увеличить интерфейс", command=lambda: self.change_ui_font_size(1))
-        view_menu.add_command(label="A− Уменьшить интерфейс", command=lambda: self.change_ui_font_size(-1))
-        view_menu.add_command(label="Сбросить размер интерфейса", command=self.reset_ui_font_size)
-        self.menu_bar.add_cascade(label="Вид", menu=view_menu)
+        settings_menu = tk.Menu(self.menu_bar)
+        settings_menu.add_command(label="Открыть настройки…", command=self.show_settings_window)
+        settings_menu.add_command(label="Словари", command=lambda: self.show_settings_window("dictionaries"))
+        settings_menu.add_command(label="LibreTranslate", command=lambda: self.show_settings_window("libretranslate"))
+        settings_menu.add_command(label="Yandex Cloud", command=lambda: self.show_settings_window("yandex"))
+        settings_menu.add_command(label="Argos", command=lambda: self.show_settings_window("argos"))
+        self.menu_bar.add_cascade(label="Настройки", menu=settings_menu)
 
         self.dictionary_context_menu = tk.Menu(self.root, tearoff=False)
         self.dictionary_context_menu.add_command(label="Каталог словарей…", command=self.show_dictionary_catalog)
@@ -368,7 +373,7 @@ class MainWindow:
     def _build_toolbar(self) -> None:
         toolbar = ttk.Frame(self.root, padding=(12, 10, 12, 4), style="Toolbar.TFrame")
         toolbar.pack(side=tk.TOP, fill=tk.X)
-        toolbar.columnconfigure(12, weight=1)
+        toolbar.columnconfigure(11, weight=1)
 
         ttk.Button(toolbar, text="Открыть", command=self.open_document_dialog, style="Toolbar.TButton").grid(row=0, column=0, padx=(0, 6), sticky="w")
         ttk.Button(toolbar, text="◀", command=self.previous_page, width=3).grid(row=0, column=1, sticky="w")
@@ -386,21 +391,19 @@ class MainWindow:
         self.direction_button = ttk.Button(toolbar, text=self._direction_display(self.settings.direction), command=self.toggle_direction)
         self.direction_button.grid(row=0, column=7, padx=(0, 12), sticky="w")
 
-        ttk.Button(toolbar, text="A−", command=lambda: self.change_ui_font_size(-1), width=4).grid(row=0, column=8, sticky="w")
-        ttk.Button(toolbar, text="A+", command=lambda: self.change_ui_font_size(1), width=4).grid(row=0, column=9, padx=(4, 12), sticky="w")
+        ttk.Button(toolbar, text="Настройки", command=self.show_settings_window).grid(row=0, column=8, padx=(0, 8), sticky="w")
+        ttk.Button(toolbar, text="Словари", command=lambda: self.show_settings_window("dictionaries")).grid(row=0, column=9, padx=(0, 12), sticky="w")
 
-        ttk.Button(toolbar, text="Словари", command=self.show_dictionary_catalog).grid(row=0, column=10, padx=(0, 12), sticky="w")
-
-        ttk.Label(toolbar, text="Поиск:").grid(row=0, column=11, sticky="w")
+        ttk.Label(toolbar, text="Поиск:").grid(row=0, column=10, sticky="w")
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var)
-        self.search_entry.grid(row=0, column=12, padx=(4, 4), sticky="ew")
-        ttk.Button(toolbar, text="Найти", command=self.execute_search).grid(row=0, column=13, sticky="w")
-        ttk.Button(toolbar, text="Пред.", command=lambda: self.navigate_search(-1)).grid(row=0, column=14, padx=(4, 0), sticky="w")
-        ttk.Button(toolbar, text="След.", command=lambda: self.navigate_search(1)).grid(row=0, column=15, padx=(4, 0), sticky="w")
+        self.search_entry.grid(row=0, column=11, padx=(4, 4), sticky="ew")
+        ttk.Button(toolbar, text="Найти", command=self.execute_search).grid(row=0, column=12, sticky="w")
+        ttk.Button(toolbar, text="Пред.", command=lambda: self.navigate_search(-1)).grid(row=0, column=13, padx=(4, 0), sticky="w")
+        ttk.Button(toolbar, text="След.", command=lambda: self.navigate_search(1)).grid(row=0, column=14, padx=(4, 0), sticky="w")
 
         self.search_status_label = ttk.Label(toolbar, text="")
-        self.search_status_label.grid(row=0, column=16, padx=(10, 0), sticky="w")
+        self.search_status_label.grid(row=0, column=15, padx=(10, 0), sticky="w")
 
     def _build_content(self) -> None:
         body = ttk.Frame(self.root, padding=(12, 4, 12, 8), style="App.TFrame")
@@ -1340,13 +1343,14 @@ class MainWindow:
 
         buttons = ttk.Frame(bottom, style="App.TFrame")
         buttons.grid(row=2, column=0, sticky="ew")
-        buttons.columnconfigure(5, weight=1)
-        ttk.Button(buttons, text="Обновить список из сети", command=lambda: self._populate_argos_model_tree(update_index=True)).grid(row=0, column=0, sticky="w")
-        ttk.Button(buttons, text="Установить выбранную модель", command=self.install_selected_argos_model).grid(row=0, column=1, padx=(6, 0), sticky="w")
-        ttk.Button(buttons, text="Импортировать .argosmodel…", command=self.import_argos_model_from_dialog).grid(row=0, column=2, padx=(6, 0), sticky="w")
-        ttk.Button(buttons, text="Выбрать Argos", command=self.select_argos_provider).grid(row=0, column=3, padx=(6, 0), sticky="w")
-        ttk.Button(buttons, text="Справка", command=self.show_argos_installation_help).grid(row=0, column=4, padx=(6, 0), sticky="w")
-        ttk.Button(buttons, text="Закрыть", command=self._close_argos_model_manager).grid(row=0, column=5, sticky="e")
+        buttons.columnconfigure(6, weight=1)
+        ttk.Button(buttons, text="Установить поддержку Argos", command=self.install_argos_runtime_from_gui).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Обновить список из сети", command=lambda: self._populate_argos_model_tree(update_index=True)).grid(row=0, column=1, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Установить выбранную модель", command=self.install_selected_argos_model).grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Импортировать .argosmodel…", command=self.import_argos_model_from_dialog).grid(row=0, column=3, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Выбрать Argos", command=self.select_argos_provider).grid(row=0, column=4, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Справка", command=self.show_argos_installation_help).grid(row=0, column=5, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Закрыть", command=self._close_argos_model_manager).grid(row=0, column=6, sticky="e")
 
         self._populate_argos_model_tree(update_index=False)
 
@@ -1467,6 +1471,12 @@ class MainWindow:
         finally:
             self.root.configure(cursor="")
 
+    def install_argos_runtime_from_gui(self) -> None:
+        self._run_argos_task(
+            "Поддержка Argos установлена",
+            lambda: install_argos_runtime(self.config.project_root / "requirements-optional.txt"),
+        )
+
     def install_selected_argos_model(self) -> None:
         direction = self._selected_argos_direction()
         if direction is None:
@@ -1535,181 +1545,20 @@ class MainWindow:
         else:
             self.example_var.set(self._provider_idle_text())
 
+    def show_settings_window(self, tab_key: str = "general") -> None:
+        if self._settings_dialog is None or not self._settings_dialog.window.winfo_exists():
+            self._settings_dialog = SettingsDialog(self)
+        self._settings_dialog.refresh_all()
+        self._settings_dialog.focus_tab(tab_key)
+
     def show_provider_settings_dialog(self) -> None:
         provider_id = self.context_service.active_provider_id()
-        window = tk.Toplevel(self.root)
-        window.title("Настройка провайдера контекстного перевода")
-        window.geometry("760x420")
-        window.minsize(560, 320)
-        window.transient(self.root)
-        window.configure(background="#eef2f7")
-        window.rowconfigure(0, weight=1)
-        window.columnconfigure(0, weight=1)
-
-        frame = ttk.Frame(window, padding=14, style="App.TFrame")
-        frame.grid(row=0, column=0, sticky="nsew")
-        frame.columnconfigure(0, weight=1)
-        ttk.Label(frame, text=f"Текущий провайдер: {self.context_service.provider_name(provider_id)}", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
-
-        save_button_text = "OK"
-        save = window.destroy
-        extra_button: ttk.Button | None = None
-
-        if provider_id == "libretranslate":
-            url_var = tk.StringVar(value=self.settings.libretranslate_url)
-            api_var = tk.StringVar(value=self.settings.libretranslate_api_key)
-            endpoint_var = tk.StringVar(value="")
-            status_var = tk.StringVar(value="")
-
-            ttk.Label(frame, text="URL сервера LibreTranslate:").grid(row=1, column=0, sticky="w", pady=(12, 2))
-            url_entry = ttk.Entry(frame, textvariable=url_var)
-            url_entry.grid(row=2, column=0, sticky="ew")
-            ttk.Label(frame, text="API key (оставьте пустым для self-hosted, если сервер не требует ключ):").grid(row=3, column=0, sticky="w", pady=(10, 2))
-            api_entry = ttk.Entry(frame, textvariable=api_var, show="*")
-            api_entry.grid(row=4, column=0, sticky="ew")
-
-            endpoint_label = ttk.Label(frame, textvariable=endpoint_var, style="Muted.TLabel", justify=tk.LEFT)
-            endpoint_label.grid(row=5, column=0, sticky="ew", pady=(8, 2))
-            hint_text = (
-                f"Self-hosted по умолчанию: {LIBRETRANSLATE_DEFAULT_URL}. Можно указать и полный endpoint /translate. "
-                "Для managed libretranslate.com нужен API key."
-            )
-            hint_label = ttk.Label(frame, text=hint_text, style="Context.TLabel", justify=tk.LEFT)
-            hint_label.grid(row=6, column=0, sticky="ew", pady=(4, 2))
-            status_label = ttk.Label(frame, textvariable=status_var, style="Muted.TLabel", justify=tk.LEFT)
-            status_label.grid(row=7, column=0, sticky="ew", pady=(4, 2))
-            self._bind_wraplength_widgets(frame, (endpoint_label, hint_label, status_label), padding=28, minimum=260)
-
-            def refresh_libretranslate_hint(*_args) -> None:
-                normalized = normalize_libretranslate_url(url_var.get())
-                endpoint = libretranslate_translate_url(normalized)
-                endpoint_var.set(f"Эффективный endpoint: {endpoint or '—'}")
-                status_var.set(libretranslate_configuration_diagnostic(url_var.get(), api_var.get()).message)
-
-            url_var.trace_add("write", refresh_libretranslate_hint)
-            api_var.trace_add("write", refresh_libretranslate_hint)
-            refresh_libretranslate_hint()
-            url_entry.focus_set()
-
-            def save() -> None:
-                self.settings.libretranslate_url = url_var.get()
-                self.settings.libretranslate_api_key = api_var.get()
-                self.settings = self.settings.normalized()
-                self.settings_store.save(self.settings)
-                self.context_service.update_settings(self.settings)
-                window.destroy()
-                self._update_status("Настройки LibreTranslate сохранены")
-                if self.current_view_model is not None:
-                    self._start_context_translation(self.current_view_model)
-
-            def test_libretranslate() -> None:
-                diagnostic = libretranslate_configuration_diagnostic(url_var.get(), api_var.get())
-                status_var.set(diagnostic.message)
-                if diagnostic.state == "error":
-                    messagebox.showwarning("LibreTranslate", diagnostic.message)
-                    return
-                self.root.configure(cursor="watch")
-                window.configure(cursor="watch")
-                window.update_idletasks()
-                try:
-                    ok, report = self._probe_libretranslate_settings(url_var.get(), api_var.get())
-                finally:
-                    self.root.configure(cursor="")
-                    window.configure(cursor="")
-                if ok:
-                    status_var.set("LibreTranslate: проверка EN ↔ RU выполнена успешно.")
-                    messagebox.showinfo("Проверка LibreTranslate", report)
-                else:
-                    status_var.set("LibreTranslate: проверка завершилась с ошибками, см. подробности.")
-                    messagebox.showwarning("Проверка LibreTranslate", report)
-
-            extra_button = ttk.Button(frame, text="Проверить EN ↔ RU", command=test_libretranslate)
-
-        elif provider_id == "yandex":
-            folder_var = tk.StringVar(value=self.settings.yandex_folder_id)
-            api_var = tk.StringVar(value=self.settings.yandex_api_key)
-            iam_var = tk.StringVar(value=self.settings.yandex_iam_token)
-            status_var = tk.StringVar(
-                value=self.context_service.provider_status(self.settings.direction, provider_id="yandex").message
-            )
-
-            ttk.Label(frame, text="Folder ID (обязательно для Translate API):").grid(row=1, column=0, sticky="w", pady=(12, 2))
-            ttk.Entry(frame, textvariable=folder_var).grid(row=2, column=0, sticky="ew")
-            ttk.Label(frame, text="API key:").grid(row=3, column=0, sticky="w", pady=(10, 2))
-            ttk.Entry(frame, textvariable=api_var, show="*").grid(row=4, column=0, sticky="ew")
-            ttk.Label(frame, text="IAM token (если используешь Bearer):").grid(row=5, column=0, sticky="w", pady=(10, 2))
-            ttk.Entry(frame, textvariable=iam_var, show="*").grid(row=6, column=0, sticky="ew")
-            status_label = ttk.Label(frame, textvariable=status_var, style="Muted.TLabel", justify=tk.LEFT)
-            status_label.grid(row=7, column=0, sticky="ew", pady=(10, 0))
-            self._bind_wraplength_widgets(frame, (status_label,), padding=28, minimum=260)
-
-            def save() -> None:
-                self.settings.yandex_folder_id = folder_var.get()
-                self.settings.yandex_api_key = api_var.get()
-                self.settings.yandex_iam_token = iam_var.get()
-                self.settings = self.settings.normalized()
-                self.settings_store.save(self.settings)
-                self.context_service.update_settings(self.settings)
-                window.destroy()
-                self._update_status("Настройки Yandex Cloud сохранены")
-                if self.current_view_model is not None:
-                    self._start_context_translation(self.current_view_model)
-
-        elif provider_id == "argos":
-            state = list_argos_models(update_index=False, directions=(self.settings.direction,))
-            model = state.for_direction(self.settings.direction)
-            status_line = f"Текущее направление: {self._direction_display(self.settings.direction)}."
-            if not state.dependency_ready:
-                info = (
-                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
-                    f"{status_line}\n"
-                    "Python-пакет argostranslate пока не установлен. Сначала поставьте optional dependency, затем откройте менеджер офлайн-моделей и установите модель из сети или импортируйте локальный .argosmodel файл."
-                )
-            elif model is not None and model.installed:
-                info = (
-                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
-                    f"{status_line}\n"
-                    "Локальная модель для текущего направления уже установлена. Провайдер готов к работе без интернета после однократной установки модели."
-                )
-            elif model is not None and model.available_for_download:
-                info = (
-                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
-                    f"{status_line}\n"
-                    "Для текущего направления пакет найден в индексе Argos и доступен для загрузки из сети, но пока не установлен локально. Откройте менеджер офлайн-моделей, чтобы скачать его прямо из GUI."
-                )
-            else:
-                info = (
-                    "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
-                    f"{status_line}\n"
-                    "Локальная модель для текущего направления пока не найдена. Её можно скачать из GUI или импортировать из локального .argosmodel файла."
-                )
-            info_label = ttk.Label(frame, text=info, style="Context.TLabel", justify=tk.LEFT)
-            info_label.grid(row=1, column=0, sticky="ew", pady=(14, 10))
-            self._bind_wraplength_widgets(frame, (info_label,), padding=28, minimum=260)
-            ttk.Button(
-                frame,
-                text="Открыть менеджер офлайн-моделей…",
-                command=lambda: (window.destroy(), self.show_argos_model_manager()),
-            ).grid(row=2, column=0, sticky="w")
-
-            def save() -> None:
-                window.destroy()
-
-        else:
-            info_label = ttk.Label(frame, text="Для отключённого режима дополнительных настроек нет.", style="Context.TLabel", justify=tk.LEFT)
-            info_label.grid(row=1, column=0, sticky="ew", pady=(14, 10))
-            self._bind_wraplength_widgets(frame, (info_label,), padding=28, minimum=260)
-
-            def save() -> None:
-                window.destroy()
-
-        buttons = ttk.Frame(frame, style="App.TFrame")
-        buttons.grid(row=99, column=0, sticky="ew", pady=(16, 0))
-        buttons.columnconfigure(0, weight=1)
-        if extra_button is not None:
-            extra_button.grid(in_=buttons, row=0, column=0, sticky="w")
-        ttk.Button(buttons, text=save_button_text, command=save).grid(row=0, column=1, sticky="e")
-        ttk.Button(buttons, text="Отмена", command=window.destroy).grid(row=0, column=2, padx=(6, 0), sticky="e")
+        tab_map = {
+            "libretranslate": "libretranslate",
+            "yandex": "yandex",
+            "argos": "argos",
+        }
+        self.show_settings_window(tab_map.get(provider_id, "general"))
 
     def _probe_libretranslate_settings(self, base_url: str, api_key: str) -> tuple[bool, str]:
         normalized = normalize_libretranslate_url(base_url)

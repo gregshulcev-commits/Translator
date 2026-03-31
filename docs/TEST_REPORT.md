@@ -1,4 +1,4 @@
-# Отчёт о тестировании v8
+# Отчёт о тестировании v9
 
 ## Дата
 
@@ -16,12 +16,14 @@ PYTHONPATH=src pytest
 
 Результат:
 
-- **49 passed, 2 skipped**.
+- **58 passed, 2 skipped**.
 
 В проверку вошли:
 
 - document plugins и dictionary workflow;
 - Argos manager;
+- compact context extraction;
+- dictionary manager;
 - `mobile_api.py`;
 - Android branch layout checks;
 - LibreTranslate/UI regression tests;
@@ -39,17 +41,18 @@ xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 
 - тест проходит без падения;
 - приложение открывает тестовый PDF;
-- словарный lookup и базовый viewer workflow сохраняются рабочими.
+- словарный lookup и базовый viewer workflow сохраняются рабочими;
+- интеграция нового окна настроек не ломает desktop bootstrap.
 
-### 3. Ручной code review в рамках merge
+### 3. Ручной review в рамках v9 usability-итерации
 
-Проверены и исправлены:
+Проверены и обновлены:
 
-- откат bugfix-ветки в `context_providers.py`;
-- откат bugfix-ветки в `main_window.py`;
-- default URL и устойчивость `settings_store.py`;
-- загрузка external plugins по умолчанию;
-- обработка non-file путей в `mobile_api.py`.
+- `install_app.sh` и сценарий desktop integration;
+- `settings_dialog.py`;
+- `dictionary_manager.py`;
+- `context_extraction.py`;
+- интеграция новых UX-сценариев в `main_window.py`.
 
 ## Что не проверено в этой среде
 
@@ -60,4 +63,4 @@ xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 
 ## Вывод
 
-Merged source `v8` стабилен для desktop-ветки, содержит Android source branch, проходит Python regression suite и smoke test, а также включает дополнительные исправления по безопасности и устойчивости.
+Source `v9` стабилен для desktop-ветки, содержит Android source branch, проходит Python regression suite и GUI smoke test, а также добавляет установщик приложения, отдельное окно настроек и GUI-управление словарями / Argos без отката прежних исправлений.

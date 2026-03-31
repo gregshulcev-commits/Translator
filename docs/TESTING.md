@@ -1,4 +1,4 @@
-# Тестирование MVP v8
+# Тестирование MVP v9
 
 ## Базовый набор команд
 
@@ -20,16 +20,16 @@ xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 ### Provider layer
 
 - Argos manager helpers;
+- GUI-friendly установка optional runtime Argos;
 - LibreTranslate URL normalization и diagnostics;
 - fallback JSON -> form-urlencoded;
 - Yandex provider configuration checks.
 
-### UI regressions
+### UX / settings / dictionaries
 
-- Argos help dialog;
-- responsive helper-функции `MainWindow`;
-- Android branch layout smoke checks;
-- mobile bridge tests.
+- compact context extraction;
+- безопасное удаление пользовательских словарей;
+- сохранение и нормализация UI/provider settings.
 
 ### Security hardening
 
@@ -45,17 +45,17 @@ xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 - открытие PDF;
 - базовый click-to-translate сценарий;
 - scroll / zoom;
-- отсутствие падения после `v8` merge.
+- отсутствие падения после `v9` usability-обновления.
 
 ## Что не покрыто в этой среде
 
 - реальная сборка Android APK;
 - запуск на устройстве/эмуляторе;
-- end-to-end проверка cloud providers с реальными сетевыми credentials.
+- end-to-end проверка cloud providers с реальными credentials.
 
 ## Актуальный результат
 
-На зафиксированном merged source `v8`:
+На исходниках `v9`:
 
-- `pytest`: **49 passed, 2 skipped**;
+- `pytest`: **58 passed, 2 skipped**;
 - desktop GUI smoke test: проходит.

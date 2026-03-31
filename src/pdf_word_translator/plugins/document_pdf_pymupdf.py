@@ -12,11 +12,11 @@ from PIL import Image
 
 from ..models import DocumentSentence, SearchHit, WordToken
 from ..plugin_api import DocumentPlugin, DocumentSession
+from ..utils.context_extraction import extract_compact_context
 from ..utils.token_splitter import split_token_rect
 
 
 LOGGER = logging.getLogger(__name__)
-SENTENCE_END_RE = re.compile(r"[.!?;:]$")
 
 
 @dataclass
@@ -72,22 +72,8 @@ class PyMuPdfDocumentSession(DocumentSession):
         token_index = page_cache.token_indexes.get(token.token_id)
         if token_index is None:
             return DocumentSentence(page_index=token.page_index, text=token.text)
-        left = token_index
-        while left > 0:
-            previous_text = page_cache.sentence_words[left - 1][0]
-            if SENTENCE_END_RE.search(previous_text):
-                break
-            left -= 1
-        right = token_index
-        while right + 1 < len(page_cache.sentence_words):
-            current_text = page_cache.sentence_words[right][0]
-            if SENTENCE_END_RE.search(current_text):
-                break
-            right += 1
-            if SENTENCE_END_RE.search(page_cache.sentence_words[right][0]):
-                break
-        parts = [page_cache.sentence_words[idx][0] for idx in range(left, right + 1)]
-        return DocumentSentence(page_index=token.page_index, text=self._join_words(parts))
+        context = extract_compact_context(page_cache.sentence_words, token_index)
+        return DocumentSentence(page_index=token.page_index, text=context or token.text)
 
     def search(self, query: str) -> List[SearchHit]:
         results: List[SearchHit] = []

@@ -1,42 +1,40 @@
-# Архитектура MVP v8
+# Архитектура MVP v9
 
 ## Назначение
 
-`v8` сохраняет уже принятую архитектуру:
+`v9` сохраняет принятую архитектуру проекта:
 
 1. **desktop application** на Python + Tkinter;
-2. **android-client** как отдельная APK-ветка;
+2. **android-client** как отдельная APK/source-ветка;
 3. **shared dictionary core** и модели данных внутри `src/pdf_word_translator/`.
 
 Главный принцип не меняется:
 
 - viewer и platform UI могут быть разными;
 - словарный формат, модели данных и lookup-логика остаются общими;
-- нейронный перевод остаётся optional-слоем и не раздувает ядро.
+- контекстный/нейронный перевод остаётся optional-слоем и не раздувает ядро.
 
 ## Слои системы
 
 ### 1. Desktop UI Layer
 
-Файл:
+Основные файлы:
 
 - `src/pdf_word_translator/ui/main_window.py`
+- `src/pdf_word_translator/ui/settings_dialog.py`
 
 Ответственность:
 
-- основное Tkinter-окно;
-- scrolling canvas для документа;
-- lazy rendering страниц;
+- главное окно и viewer документа;
+- поиск, zoom, scroll и highlight слова;
 - нижняя карточка словарной подсказки;
-- поиск, zoom, scroll, word highlight;
-- каталог словарей;
-- менеджер Argos-моделей;
-- диалог настройки provider layer;
-- растягиваемый read-only dialog для длинной справки по Argos.
+- отдельное окно настроек;
+- GUI-управление словарями;
+- GUI-управление Argos runtime и моделями.
 
 ### 2. Application Layer
 
-Файлы:
+Основные файлы:
 
 - `src/pdf_word_translator/app.py`
 - `src/pdf_word_translator/plugin_loader.py`
@@ -54,7 +52,7 @@
 
 ### 3. Domain Layer
 
-Файлы:
+Основные файлы:
 
 - `src/pdf_word_translator/models.py`
 - `src/pdf_word_translator/plugin_api.py`
@@ -74,15 +72,20 @@
 - `src/pdf_word_translator/plugins/document_fb2.py`
 - `src/pdf_word_translator/plugins/dictionary_sqlite.py`
 - `src/pdf_word_translator/plugins/dictionary_composite.py`
-- `src/pdf_word_translator/utils/*`
+- `src/pdf_word_translator/utils/context_extraction.py`
+- `src/pdf_word_translator/utils/dictionary_manager.py`
+- `src/pdf_word_translator/utils/argos_manager.py`
+- `src/pdf_word_translator/utils/settings_store.py`
 
 Ответственность:
 
 - открытие и рендер PDF/TXT/FB2;
 - SQLite dictionaries;
 - import/install словарей;
-- settings persistence;
-- Argos model lifecycle helpers.
+- безопасное перечисление и удаление runtime-паков;
+- извлечение компактного контекста вокруг слова;
+- persistence пользовательских настроек;
+- lifecycle helper для Argos.
 
 ### 5. Mobile Bridge Layer
 
@@ -118,15 +121,24 @@ Bridge остаётся:
 - dictionary bridge;
 - asset bootstrap.
 
-## Границы безопасности и устойчивости в v8
+## Что именно меняется в `v9`
+
+### Удобство использования вынесено в отдельные узлы
+
+Новые крупные элементы архитектуры:
+
+- `SettingsDialog` как единый центр GUI-настроек;
+- `install_app.sh` как пользовательский desktop installer;
+- `context_extraction.py` как отдельный слой подготовки короткого контекста;
+- `dictionary_manager.py` как слой безопасного GUI-удаления runtime-словарей.
 
 ### Provider layer остаётся отдельным
 
 Словарный перевод слова и перевод предложения — разные задачи. Поэтому provider layer не встроен в ядро lookup и не ломает основной словарный сценарий.
 
-### External plugins теперь opt-in
+### External plugins остаются opt-in
 
-Загрузка внешних Python-плагинов больше не происходит автоматически. Для включения нужен `PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1`.
+Загрузка внешних Python-плагинов не происходит автоматически. Для включения нужен `PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1`.
 
 Дополнительно загрузчик:
 
@@ -136,19 +148,11 @@ Bridge остаётся:
 
 ### Settings file сохраняется безопаснее
 
-`settings.json` теперь:
+`settings.json`:
 
 - сохраняется через временный файл и `os.replace()`;
 - на POSIX получает права `0600`.
 
-### Mobile bridge принимает только обычные файлы
+### GUI-удаление словарей ограничено runtime-папкой
 
-`mobile_api.py` теперь отклоняет директории и другие non-file paths при конфигурации словарей.
-
-## Что именно было слито в v8
-
-`v8` объединяет:
-
-- функциональность `v7` (Android branch, `mobile_api.py`, Argos help dialog);
-- исправления из отдельной fixed-ветки (LibreTranslate diagnostics/fallback, responsive UI-окна, Argos status text);
-- дополнительное усиление безопасности настроек, plugin loading и mobile bridge.
+Даже при работе из окна настроек приложение не должно иметь возможность удалять произвольные файлы. Поэтому GUI-удаление разрешено только для пользовательских SQLite-паков внутри runtime directory.

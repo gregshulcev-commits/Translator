@@ -9,10 +9,12 @@ models for EN↔RU, install them from the online index, and import local
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib import import_module
+from importlib import import_module, invalidate_caches
 from pathlib import Path
 from types import ModuleType
 import re
+import subprocess
+import sys
 
 from ..models import EN_RU, RU_EN, TranslationDirection, direction_source_lang, direction_target_lang
 
@@ -67,6 +69,14 @@ class ArgosInstallResult:
     installed_from_local_file: bool = False
     package_version: str = ""
     package_name: str = ""
+
+
+@dataclass(frozen=True)
+class ArgosDependencyInstallResult:
+    """Result of installing or refreshing the optional Argos Python runtime."""
+
+    message: str
+    command: tuple[str, ...] = ()
 
 
 def direction_display(direction: TranslationDirection) -> str:
@@ -227,6 +237,44 @@ def import_argos_model_from_path(source_path: Path) -> ArgosInstallResult:
     )
 
 
+def install_argos_runtime(requirements_file: Path | None = None) -> ArgosDependencyInstallResult:
+    """Install the optional ``argostranslate`` dependency into the current interpreter environment."""
+
+    requirements_path = Path(requirements_file) if requirements_file is not None else Path(__file__).resolve().parents[3] / "requirements-optional.txt"
+    requirements_path = requirements_path.expanduser().resolve()
+    if not requirements_path.exists():
+        raise ArgosManagerError(f"Файл optional-зависимостей не найден: {requirements_path}")
+
+    command = (
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "-r",
+        str(requirements_path),
+    )
+    try:
+        subprocess.check_call(command)
+    except subprocess.CalledProcessError as exc:
+        raise ArgosManagerError(f"Не удалось установить поддержку Argos: {exc}") from exc
+
+    invalidate_caches()
+    try:
+        _load_argos_modules()
+    except ArgosManagerError as exc:
+        raise ArgosManagerError(
+            f"Зависимость установлена, но модуль Argos всё ещё недоступен: {exc}. "
+            "Перезапустите приложение и повторите попытку."
+        ) from exc
+
+    return ArgosDependencyInstallResult(
+        message="Поддержка Argos установлена в текущее окружение Python.",
+        command=command,
+    )
+
+
+
 def argos_direction_ready(direction: TranslationDirection) -> tuple[bool, str]:
     """Return whether the Argos provider can translate in the requested direction."""
 
@@ -252,7 +300,8 @@ def _load_argos_modules() -> tuple[ModuleType, ModuleType]:
     except Exception as exc:  # pragma: no cover - depends on optional dependency presence
         raise ArgosManagerError(
             "Python-пакет argostranslate не установлен в текущем окружении. "
-            "Установите optional dependency: python -m pip install -r requirements-optional.txt"
+            "Откройте GUI-менеджер Argos и нажмите «Установить поддержку Argos» "
+            "или выполните python -m pip install -r requirements-optional.txt"
         ) from exc
     return package_module, translate_module
 

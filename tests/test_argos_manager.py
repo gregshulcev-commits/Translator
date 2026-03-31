@@ -162,3 +162,35 @@ def test_argos_provider_returns_manager_hint_when_model_is_missing(monkeypatch: 
 
     assert not result.ok
     assert "Офлайн-модели Argos" in result.text
+
+
+def test_install_argos_runtime_uses_current_python_and_requirements(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    requirements = tmp_path / "requirements-optional.txt"
+    requirements.write_text("argostranslate\n", encoding="utf-8")
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_check_call(command):
+        captured["command"] = tuple(command)
+        return 0
+
+    monkeypatch.setattr(argos_manager.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(argos_manager, "_load_argos_modules", lambda: (object(), object()))
+
+    result = argos_manager.install_argos_runtime(requirements)
+
+    assert captured["command"][0].endswith(("python", "python3"))
+    assert captured["command"][-1] == str(requirements.resolve())
+    assert "Поддержка Argos" in result.message
+
+
+def test_install_argos_runtime_raises_on_pip_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    requirements = tmp_path / "requirements-optional.txt"
+    requirements.write_text("argostranslate\n", encoding="utf-8")
+
+    def failing_check_call(_command):
+        raise argos_manager.subprocess.CalledProcessError(1, ["python", "-m", "pip"])
+
+    monkeypatch.setattr(argos_manager.subprocess, "check_call", failing_check_call)
+
+    with pytest.raises(argos_manager.ArgosManagerError):
+        argos_manager.install_argos_runtime(requirements)

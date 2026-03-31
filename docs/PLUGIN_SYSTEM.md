@@ -21,9 +21,9 @@
   - встроенный RU→EN словарь;
   - все найденные runtime `*.sqlite` packs.
 
-## External plugins в v8
+## External plugins
 
-Внешние Python-плагины поддерживаются, но теперь работают по принципу **explicit opt-in**.
+Внешние Python-плагины поддерживаются, но работают по принципу **explicit opt-in**.
 
 Папка для внешних плагинов:
 
@@ -44,7 +44,7 @@ export PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1
 Если external plugins включены, загрузчик дополнительно:
 
 - игнорирует symlink/non-regular paths;
-- игнорирует директории и файлы с небезопасными POSIX permission bits;
+- игнорирует каталоги и файлы с небезопасными POSIX permission bits;
 - использует уникальные module names, чтобы не сталкивать внешние модули между собой.
 
 ## Формат внешнего плагина

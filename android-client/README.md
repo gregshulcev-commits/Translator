@@ -1,6 +1,6 @@
-# Android client prototype (APK branch v8)
+# Android client prototype (APK branch v9)
 
-Эта директория содержит **отдельную Android-ветку** проекта `pdf_word_translator_mvp_v8`.
+Эта директория содержит **отдельную Android-ветку** проекта `pdf_word_translator_mvp_v9`.
 
 ## Основной смысл ветки
 
@@ -18,13 +18,13 @@
 - assets со стартовыми EN→RU и RU→EN словарями;
 - Gradle-конфиги для `com.android.application`, Kotlin и `com.chaquo.python`.
 
-## Что обновлено в v8
+## Что обновлено в v9
 
 - Android-ветка сохранена после слияния с desktop bugfix-веткой;
 - `mobile_api.py` дополнительно усилен проверкой путей словарей;
 - Android module получил новый идентификатор сборки:
-  - `versionCode = 8`;
-  - `versionName = "0.8.0-v8-merge"`.
+  - `versionCode = 9`;
+  - `versionName = "0.9.0-v9-usability"`.
 
 ## Что уже умеет APK-ветка
 
@@ -55,7 +55,7 @@
 
 В архиве по-прежнему **нет готового APK** и **нет Gradle wrapper**.
 
-Причина не изменилась: в текущем рабочем окружении не было Android SDK и системного Gradle, поэтому в `v8` включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.
+Причина не изменилась: в текущем рабочем окружении не было Android SDK и системного Gradle, поэтому в `v9` включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.
 
 Рекомендуемый путь сборки:
 

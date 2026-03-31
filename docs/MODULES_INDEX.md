@@ -28,10 +28,12 @@
 ## Utils
 
 - `docs/modules/argos_manager.md`
+- `docs/modules/context_extraction.md`
 - `docs/modules/dictionary_builder.md`
 - `docs/modules/freedict_importer.md`
 - `docs/modules/dictionary_installer.md`
 - `docs/modules/dictionary_catalog.md`
+- `docs/modules/dictionary_manager.md`
 - `docs/modules/text_normalizer.md`
 - `docs/modules/token_splitter.md`
 - `docs/modules/settings_store.md`
@@ -40,9 +42,11 @@
 ## UI
 
 - `docs/modules/main_window.md`
+- `docs/modules/settings_dialog.md`
 
-## Tools
+## Scripts / Tools
 
+- `docs/modules/desktop_installer.md`
 - `docs/modules/import_dictionary.md`
 - `docs/modules/install_default_dictionaries.md`
 - `docs/modules/install_argos_model.md`

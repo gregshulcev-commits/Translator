@@ -1,44 +1,46 @@
-# Roadmap MVP v8
+# Roadmap MVP v9
 
 ## Что уже сделано
 
-### Desktop stability
+### Desktop usability
 
-- merged desktop bugfix branch и Android source branch;
-- восстановлены responsive-исправления для UI;
-- возвращены исправления LibreTranslate и Argos diagnostics;
-- сохранён расширенный Argos help dialog;
-- сохранено масштабирование документа до 800%.
+- добавлен установщик приложения с launcher и desktop entry;
+- добавлено единое окно настроек;
+- размер UI-шрифта вынесен из главной панели в настройки;
+- Argos runtime и модели теперь доступны через GUI;
+- пользовательские словари теперь можно удалять из GUI;
+- контекстный перевод ограничен локальным блоком/строкой.
+
+### Desktop stability и security
+
+- сохранены merge-исправления v8;
+- `settings.json` сохраняется атомарно и с правами `0600` на POSIX;
+- external Python plugins остаются opt-in;
+- удаление словарей из GUI ограничено только пользовательской runtime-папкой.
 
 ### Mobile / APK branch
 
 - сохранена директория `android-client/`;
 - сохранён `mobile_api.py` как узкий bridge-модуль;
-- сохранены bundled SQLite assets и базовая Kotlin/Chaquopy интеграция.
-
-### Security hardening
-
-- `settings.json` сохраняется атомарно и с правами `0600` на POSIX;
-- external Python plugins переведены в opt-in режим;
-- mobile bridge отклоняет non-file dictionary paths.
+- обновлены Android version markers до `v9`.
 
 ### Test coverage
 
-- объединены старые и новые regression tests;
-- добавлены проверки LibreTranslate/UI bugfixes;
-- добавлены проверки security hardening;
-- итоговый результат: `49 passed, 2 skipped`.
+- добавлены тесты на извлечение компактного контекста;
+- добавлены тесты на безопасное управление словарями;
+- добавлены тесты на GUI-friendly установку Argos runtime;
+- итоговый результат: `58 passed, 2 skipped`.
 
 ## Ближайшие шаги
 
-1. Продолжить развитие desktop-версии без переписывания архитектуры.
-2. Усилить UX и тестирование provider layer.
-3. Развить Android как отдельный клиент поверх `mobile_api.py`.
+1. Развить UX настроек и фоновых задач без усложнения архитектуры.
+2. Добавить удаление Argos-моделей из GUI.
+3. Продолжить развитие Android как отдельного клиента поверх `mobile_api.py`.
 
 ## Следующие практические задачи
 
 - tap-to-word selection для Android PDF viewer;
 - подготовка Gradle wrapper и воспроизводимой APK-сборки;
-- удаление словарных паков и Argos-моделей из GUI;
+- опциональный прогресс-бар для длительных download/install операций;
 - расширение provider diagnostics и offline-first сценариев;
-- при необходимости — отдельный UX для явного включения external plugins из GUI/CLI.
+- при необходимости — GUI для явного включения external plugins.

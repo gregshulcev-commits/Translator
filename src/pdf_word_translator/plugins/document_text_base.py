@@ -17,11 +17,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..models import DocumentSentence, SearchHit, WordToken
 from ..plugin_api import DocumentPlugin, DocumentSession
+from ..utils.context_extraction import extract_compact_context
 from ..utils.text_normalizer import WordNormalizer
 from ..utils.token_splitter import split_token_rect
 
 
-SENTENCE_END_RE = re.compile(r"[.!?…]$")
 PAGE_WIDTH = 820
 PAGE_HEIGHT = 1180
 MARGIN_X = 72
@@ -105,25 +105,8 @@ class TextDocumentSession(DocumentSession):
         if token_index is None:
             return DocumentSentence(page_index=token.page_index, text=token.text)
 
-        left = token_index
-        while left > 0:
-            previous_text = sentence_words[left - 1][0]
-            if SENTENCE_END_RE.search(previous_text):
-                break
-            left -= 1
-
-        right = token_index
-        while right + 1 < len(sentence_words):
-            current_text = sentence_words[right][0]
-            if SENTENCE_END_RE.search(current_text):
-                break
-            right += 1
-            if SENTENCE_END_RE.search(sentence_words[right][0]):
-                break
-
-        parts = [sentence_words[idx][0] for idx in range(left, right + 1)]
-        sentence = self._join_words(parts)
-        return DocumentSentence(page_index=token.page_index, text=sentence)
+        sentence = extract_compact_context(sentence_words, token_index)
+        return DocumentSentence(page_index=token.page_index, text=sentence or token.text)
 
     def search(self, query: str) -> List[SearchHit]:
         lower_query = query.strip().lower()
@@ -185,7 +168,7 @@ class TextDocumentSession(DocumentSession):
             page_text_words = []
             y = MARGIN_Y
 
-        for paragraph in paragraphs:
+        for paragraph_index, paragraph in enumerate(paragraphs):
             font = TITLE_FONT if paragraph.style == "title" else BODY_FONT
             line_height = TITLE_LINE_HEIGHT if paragraph.style == "title" else BODY_LINE_HEIGHT
             spacing_after = TITLE_SPACING if paragraph.style == "title" else PARAGRAPH_SPACING
@@ -193,6 +176,8 @@ class TextDocumentSession(DocumentSession):
             if not words:
                 continue
 
+            paragraph_block_no = paragraph_index
+            paragraph_line_no = 0
             x = MARGIN_X
             for word in words:
                 word_width = self._text_width(font, word)
@@ -201,20 +186,22 @@ class TextDocumentSession(DocumentSession):
                 if x > MARGIN_X and x + word_width > PAGE_WIDTH - MARGIN_X:
                     x = MARGIN_X
                     y += line_height
+                    paragraph_line_no += 1
                 if y + line_height > PAGE_BODY_BOTTOM:
                     flush_page()
                     font = TITLE_FONT if paragraph.style == "title" else BODY_FONT
                     line_height = TITLE_LINE_HEIGHT if paragraph.style == "title" else BODY_LINE_HEIGHT
                     spacing_after = TITLE_SPACING if paragraph.style == "title" else PARAGRAPH_SPACING
                     x = MARGIN_X
+                    paragraph_line_no = 0
                 draw.text((x, y), word, fill="#111827", font=font)
                 split_tokens = split_token_rect(
                     word,
                     (x, y, x + word_width, y + word_height),
                     token_id_prefix=f"p{page_index}-w{token_counter}",
                     page_index=page_index,
-                    block_no=0,
-                    line_no=int((y - MARGIN_Y) // max(1, line_height)),
+                    block_no=paragraph_block_no,
+                    line_no=paragraph_line_no,
                     word_no=token_counter,
                 )
                 for token in split_tokens:
