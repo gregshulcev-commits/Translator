@@ -1,10 +1,10 @@
-# Android client prototype (APK branch v7)
+# Android client prototype (APK branch v8)
 
-Эта директория содержит **первую Android-ветку** проекта.
+Эта директория содержит **отдельную Android-ветку** проекта `pdf_word_translator_mvp_v8`.
 
-Важный смысл ветки:
+## Основной смысл ветки
 
-- текущий desktop GUI остаётся на **Tkinter**;
+- desktop GUI остаётся на **Tkinter**;
 - Android-клиент строится **отдельно**, на нативном Android UI;
 - словарный слой переиспользуется из Python через **Chaquopy**;
 - PDF-страницы рендерятся нативно через `PdfRenderer`.
@@ -17,6 +17,14 @@
 - `PdfPageRenderer.kt` — базовый рендер PDF-страниц;
 - assets со стартовыми EN→RU и RU→EN словарями;
 - Gradle-конфиги для `com.android.application`, Kotlin и `com.chaquo.python`.
+
+## Что обновлено в v8
+
+- Android-ветка сохранена после слияния с desktop bugfix-веткой;
+- `mobile_api.py` дополнительно усилен проверкой путей словарей;
+- Android module получил новый идентификатор сборки:
+  - `versionCode = 8`;
+  - `versionName = "0.8.0-v8-merge"`.
 
 ## Что уже умеет APK-ветка
 
@@ -35,15 +43,6 @@
 - контекстный neural translation provider внутри APK;
 - packaging pipeline с готовым `gradlew` и собранным `apk` прямо в этом архиве.
 
-## Почему ветка сделана именно так
-
-Текущий desktop viewer завязан на Tkinter, а Android требует другой UI-стек. Поэтому в v7 проект разделён так:
-
-- **desktop** продолжает развиваться как reference implementation;
-- **android-client** получает собственный UI;
-- общий словарный код остаётся в `src/pdf_word_translator/`;
-- мобильный клиент использует узкий bridge-модуль `mobile_api.py`.
-
 ## Как открыть проект в Android Studio
 
 1. Откройте Android Studio.
@@ -54,9 +53,9 @@
 
 ## Сборка
 
-В этом архиве **нет готового APK** и **нет Gradle wrapper**.
+В архиве по-прежнему **нет готового APK** и **нет Gradle wrapper**.
 
-Это сознательно: в текущем окружении не было Android SDK и системного Gradle, поэтому в v7 включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.
+Причина не изменилась: в текущем рабочем окружении не было Android SDK и системного Gradle, поэтому в `v8` включён **исходный код Android-ветки**, документация и bridge-слой, но не выполнена финальная сборка `apk`.
 
 Рекомендуемый путь сборки:
 

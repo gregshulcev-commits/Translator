@@ -5,6 +5,8 @@ replace the UI toolkit, document provider, or dictionary provider without
 rewriting the whole application.
 """
 
+__version__ = "8.0.0"
+
 __all__ = [
     "config",
     "models",

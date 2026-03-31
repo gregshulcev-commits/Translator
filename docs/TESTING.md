@@ -1,43 +1,6 @@
-# Тестирование
+# Тестирование MVP v8
 
-## Что покрыто
-
-### Unit-тесты
-
-- нормализация словоформ;
-- lookup в SQLite-словаре;
-- import CSV / FreeDict TEI / SQLite packs;
-- корректность путей конфигурации;
-- PDF provider на синтетическом документе;
-- TXT plugin;
-- FB2 plugin;
-- workflow от клика до перевода;
-- сохранение UI settings;
-- регрессии v5 по highlight/scroll, Treeview rowheight, async context queue и Yandex folder validation;
-- Argos runtime detection;
-- определение статуса EN↔RU моделей Argos;
-- установка модели Argos по направлению;
-- импорт локального `.argosmodel`;
-- понятные подсказки провайдера при отсутствии модели;
-- **mobile_api bridge**: конфигурация путей, summary и lookup;
-- **v7 regression** для Argos help dialog;
-- **Android branch layout**: наличие Gradle/Kotlin/asset-файлов и Chaquopy-конфигурации.
-
-### Интеграционные тесты
-
-- чтение и токенизация приложенных реальных PDF;
-- поиск токена `driver` в пользовательском PDF.
-
-### GUI smoke test
-
-- создание desktop-окна;
-- открытие многостраничного PDF;
-- клик по слову;
-- обновление нижней панели перевода;
-- scroll документа колесом мыши;
-- zoom по `Ctrl + колесо мыши`.
-
-## Как запускать
+## Базовый набор команд
 
 ```bash
 source .venv/bin/activate
@@ -45,14 +8,54 @@ PYTHONPATH=src pytest
 xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 ```
 
-## Актуальный результат в v7
+## Что покрывает `pytest`
 
-- `pytest`: **37 passed, 2 skipped**;
-- GUI smoke test: проходит.
+### Desktop core
 
-## Что не проверяется автоматически
+- document plugins для PDF / TXT / FB2;
+- dictionary lookup;
+- direction switching `EN ↔ RU`;
+- workflow и регрессии предыдущих итераций.
 
-- сборка Android APK;
-- запуск Android UI на устройстве/эмуляторе;
-- Gradle sync и Android Studio integration;
-- real tap-to-word selection внутри Android PDF viewer, потому что этот слой ещё не реализован.
+### Provider layer
+
+- Argos manager helpers;
+- LibreTranslate URL normalization и diagnostics;
+- fallback JSON -> form-urlencoded;
+- Yandex provider configuration checks.
+
+### UI regressions
+
+- Argos help dialog;
+- responsive helper-функции `MainWindow`;
+- Android branch layout smoke checks;
+- mobile bridge tests.
+
+### Security hardening
+
+- restricted permissions для `settings.json`;
+- external plugins disabled-by-default и explicit enable path;
+- `mobile_api.py` rejects non-file dictionary paths.
+
+## GUI smoke test
+
+`tests/smoke_gui.py` проверяет:
+
+- создание окна;
+- открытие PDF;
+- базовый click-to-translate сценарий;
+- scroll / zoom;
+- отсутствие падения после `v8` merge.
+
+## Что не покрыто в этой среде
+
+- реальная сборка Android APK;
+- запуск на устройстве/эмуляторе;
+- end-to-end проверка cloud providers с реальными сетевыми credentials.
+
+## Актуальный результат
+
+На зафиксированном merged source `v8`:
+
+- `pytest`: **49 passed, 2 skipped**;
+- desktop GUI smoke test: проходит.

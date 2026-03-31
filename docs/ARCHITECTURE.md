@@ -1,13 +1,14 @@
-# Архитектура MVP v7
+# Архитектура MVP v8
 
 ## Назначение
 
-Проект теперь состоит из двух взаимосвязанных слоёв исполнения:
+`v8` сохраняет уже принятую архитектуру:
 
 1. **desktop application** на Python + Tkinter;
-2. **android-client** как отдельная APK-ветка.
+2. **android-client** как отдельная APK-ветка;
+3. **shared dictionary core** и модели данных внутри `src/pdf_word_translator/`.
 
-Общий принцип такой:
+Главный принцип не меняется:
 
 - viewer и platform UI могут быть разными;
 - словарный формат, модели данных и lookup-логика остаются общими;
@@ -30,7 +31,8 @@
 - поиск, zoom, scroll, word highlight;
 - каталог словарей;
 - менеджер Argos-моделей;
-- resizable help dialog для длинной справки по Argos.
+- диалог настройки provider layer;
+- растягиваемый read-only dialog для длинной справки по Argos.
 
 ### 2. Application Layer
 
@@ -45,10 +47,10 @@
 
 Ответственность:
 
-- запуск desktop-приложения;
-- загрузка document/dictionary plugins;
-- orchestration между UI, документом, словарём и provider layer;
-- проверка готовности online/offline-провайдеров.
+- orchestration между UI, document layer, dictionary layer и provider layer;
+- загрузка built-in и opt-in external plugins;
+- запуск приложения и сохранение настроек;
+- связка `token -> dictionary lookup -> optional context translation`.
 
 ### 3. Domain Layer
 
@@ -59,12 +61,12 @@
 
 Ответственность:
 
-- стабильные dataclass-модели;
-- интерфейсы `DocumentPlugin`, `DocumentSession`, `DictionaryPlugin`, `ContextTranslationProvider`.
+- dataclass-модели;
+- контракты document plugins, dictionary plugins и providers.
 
-### 4. Infrastructure / Utils Layer
+### 4. Plugins / Infrastructure / Utils
 
-Файлы:
+Основные файлы:
 
 - `src/pdf_word_translator/plugins/document_pdf_pymupdf.py`
 - `src/pdf_word_translator/plugins/document_text_base.py`
@@ -76,127 +78,77 @@
 
 Ответственность:
 
-- PDF/TXT/FB2 providers;
-- SQLite dictionary access;
-- dictionary import/build/install;
+- открытие и рендер PDF/TXT/FB2;
+- SQLite dictionaries;
+- import/install словарей;
 - settings persistence;
-- Argos runtime/model lifecycle.
+- Argos model lifecycle helpers.
 
 ### 5. Mobile Bridge Layer
 
-Новый файл v7:
+Файл:
 
 - `src/pdf_word_translator/mobile_api.py`
 
-Это узкий API без Tkinter и viewer-кода.
+Bridge остаётся:
 
-Ответственность:
+- JSON-friendly;
+- UI-free;
+- без привязки к desktop viewer;
+- с минимальной поверхностью API.
 
-- принять пути к SQLite-словарям;
-- кешировать `DictionaryService` для мобильного клиента;
-- отдавать summary подключённых паков;
-- делать lookup слова;
-- возвращать JSON-friendly payload для Kotlin.
+Он отвечает за:
+
+- конфигурацию путей к SQLite dictionaries;
+- summary активных packs;
+- lookup слова;
+- JSON-friendly payloads для Kotlin/Chaquopy.
 
 ### 6. Android Client Layer
 
-Новая ветка v7:
+Директория:
 
 - `android-client/`
 
-Ответственность:
+Там живёт отдельная UI-ветка с:
 
-- нативный Android UI;
-- открытие PDF через системный picker;
-- рендер PDF через `PdfRenderer`;
-- bootstrap bundled dictionaries;
-- вызов `mobile_api.py` через Chaquopy.
+- Kotlin UI;
+- Chaquopy integration;
+- PdfRenderer;
+- dictionary bridge;
+- asset bootstrap.
 
-## Диаграмма зависимостей
+## Границы безопасности и устойчивости в v8
 
-```text
-Desktop MainWindow
-  -> TranslationWorkflow
-      -> DocumentService
-          -> DocumentPlugin / DocumentSession
-      -> DictionaryService
-          -> DictionaryPlugin
-              -> CompositeDictionaryPlugin
-                  -> SQLiteDictionaryPlugin[*]
-  -> ContextTranslationService
-      -> Disabled / Argos / LibreTranslate / Yandex providers
-  -> argos_manager helpers
-  -> SettingsStore
+### Provider layer остаётся отдельным
 
-Android MainActivity
-  -> PdfPageRenderer
-  -> AssetBootstrap
-  -> DictionaryBridge
-      -> pdf_word_translator.mobile_api
-          -> DictionaryService
-              -> CompositeDictionaryPlugin
-                  -> SQLiteDictionaryPlugin[*]
-```
+Словарный перевод слова и перевод предложения — разные задачи. Поэтому provider layer не встроен в ядро lookup и не ломает основной словарный сценарий.
 
-## Поток desktop-клика по слову
+### External plugins теперь opt-in
 
-1. Пользователь кликает по canvas.
-2. `MainWindow` переводит координаты в page coordinates.
-3. `TranslationWorkflow.translate_point()` вызывает `DocumentSession.find_token_at()`.
-4. `DocumentSession` возвращает `WordToken`.
-5. `DictionaryService.lookup()` ищет слово в подключённых словарях.
-6. `MainWindow` обновляет нижнюю панель и highlight.
-7. При активном provider layer запускается асинхронный контекстный перевод.
+Загрузка внешних Python-плагинов больше не происходит автоматически. Для включения нужен `PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1`.
 
-## Поток установки Argos-модели из desktop GUI
+Дополнительно загрузчик:
 
-1. Пользователь открывает **Перевод → Офлайн-модели Argos…**.
-2. `argos_manager.list_argos_models()` возвращает статус EN→RU / RU→EN.
-3. При установке из сети используется `install_argos_model_for_direction()`.
-4. При локальном импорте используется `import_argos_model_from_path()`.
-5. Если активен провайдер `Argos (офлайн)`, текущий контекст может быть переведён повторно.
+- игнорирует небезопасные symlink/non-regular paths;
+- пропускает каталоги и файлы с небезопасными POSIX permission bits;
+- создаёт уникальные module names для внешних плагинов.
 
-## Поток Android bootstrap
+### Settings file сохраняется безопаснее
 
-1. `MainActivity` создаёт `DictionaryBridge`.
-2. `DictionaryBridge` стартует Python runtime через Chaquopy.
-3. `DictionaryBridge.bundledAssetNames()` получает список имён asset-файлов из `mobile_api.py`.
-4. `AssetBootstrap` копирует SQLite-словари в `filesDir/dictionaries/`.
-5. `DictionaryBridge.configureDictionaryPaths()` передаёт абсолютные пути в `mobile_api.py`.
-6. `mobile_api.py` создаёт или переиспользует cached `DictionaryService`.
+`settings.json` теперь:
 
-## Поток Android lookup
+- сохраняется через временный файл и `os.replace()`;
+- на POSIX получает права `0600`.
 
-1. Пользователь вводит слово вручную.
-2. `MainActivity` вызывает `DictionaryBridge.lookupWord()`.
-3. Kotlin получает JSON payload от `mobile_api.lookup_word_json()`.
-4. UI показывает headword, лучший перевод, альтернативы и примеры.
+### Mobile bridge принимает только обычные файлы
 
-## Поток Android PDF render
+`mobile_api.py` теперь отклоняет директории и другие non-file paths при конфигурации словарей.
 
-1. Пользователь выбирает PDF через системный picker.
-2. `MainActivity` открывает `Uri`.
-3. `PdfPageRenderer` создаёт `PdfRenderer` на `ParcelFileDescriptor`.
-4. При смене страницы renderer рисует `Bitmap`.
-5. `ImageView` показывает страницу.
+## Что именно было слито в v8
 
-## Runtime-каталоги
+`v8` объединяет:
 
-### Desktop
-
-- данные: `~/.local/share/pdf_word_translator_mvp/`
-- словари: `~/.local/share/pdf_word_translator_mvp/dictionaries/`
-- настройки: `~/.local/share/pdf_word_translator_mvp/settings.json`
-- кэш: `~/.cache/pdf_word_translator_mvp/`
-- логи: `~/.cache/pdf_word_translator_mvp/logs/`
-
-### Android prototype
-
-- bundled dictionaries хранятся в `app/src/main/assets/dictionaries/`;
-- при первом запуске они копируются в `filesDir/dictionaries/`.
-
-## Границы текущего v7
-
-- desktop остаётся самым полным и функциональным клиентом;
-- Android branch пока даёт рендер PDF + ручной lookup, но не tap-to-word selection;
-- Argos provider и online providers пока подключены только к desktop UI.
+- функциональность `v7` (Android branch, `mobile_api.py`, Argos help dialog);
+- исправления из отдельной fixed-ветки (LibreTranslate diagnostics/fallback, responsive UI-окна, Argos status text);
+- дополнительное усиление безопасности настроек, plugin loading и mobile bridge.

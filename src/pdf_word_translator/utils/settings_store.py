@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import json
+import os
 
 from ..models import EN_RU, SUPPORTED_DIRECTIONS, TranslationDirection, direction_source_lang, direction_target_lang
 
@@ -15,7 +16,7 @@ class UiSettings:
     ui_font_size: int = 11
     direction: TranslationDirection = EN_RU
     context_provider_id: str = "disabled"
-    libretranslate_url: str = "https://libretranslate.com"
+    libretranslate_url: str = "http://127.0.0.1:5000"
     libretranslate_api_key: str = ""
     yandex_folder_id: str = ""
     yandex_api_key: str = ""
@@ -73,12 +74,21 @@ class UiSettings:
             ui_font_size=max(9, min(24, ui_font_size)),
             direction=direction,
             context_provider_id=provider,
-            libretranslate_url=_clean_text(self.libretranslate_url, "https://libretranslate.com"),
+            libretranslate_url=_clean_text(self.libretranslate_url, "http://127.0.0.1:5000"),
             libretranslate_api_key=_clean_text(self.libretranslate_api_key),
             yandex_folder_id=_clean_text(self.yandex_folder_id),
             yandex_api_key=_clean_text(self.yandex_api_key),
             yandex_iam_token=_clean_text(self.yandex_iam_token),
         )
+
+
+def _restrict_file_permissions(path: Path) -> None:
+    if os.name != "posix":
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        return
 
 
 class SettingsStore:
@@ -99,4 +109,8 @@ class SettingsStore:
     def save(self, settings: UiSettings) -> None:
         self._settings_file.parent.mkdir(parents=True, exist_ok=True)
         payload = asdict(settings.normalized())
-        self._settings_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path = self._settings_file.with_name(self._settings_file.name + ".tmp")
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _restrict_file_permissions(temp_path)
+        os.replace(temp_path, self._settings_file)
+        _restrict_file_permissions(self._settings_file)

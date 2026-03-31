@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Новый модуль v7 для Android/API-ветки.
+UI-free bridge для Android/mobile клиента.
 
 Он отделяет словарный lookup от desktop GUI и даёт мобильному клиенту узкий, устойчивый и JSON-friendly интерфейс.
 
@@ -14,33 +14,20 @@
 - выполняет lookup слова в выбранном направлении;
 - сериализует результат в простой JSON payload для Kotlin/Chaquopy.
 
-## Почему он нужен
-
-Android-клиент не должен импортировать `MainWindow`, document viewer или Tkinter-слой.
-
-`mobile_api.py` позволяет переиспользовать:
-
-- `DictionaryService`;
-- `CompositeDictionaryPlugin`;
-- `SQLiteDictionaryPlugin`;
-- модели словаря;
-
-без зависимости от desktop UI.
-
 ## Основные функции
 
-- `bundled_dictionary_asset_names()` — список SQLite assets, которые Android bootstrap должен скопировать в `filesDir`;
+- `bundled_dictionary_asset_names()` — список SQLite assets для Android bootstrap;
 - `configure_dictionary_paths()` — конфигурирует активные словари;
 - `current_service_summary()` — краткое состояние bridge-сервиса;
 - `pack_infos()` — список metadata подключённых паков;
 - `lookup_word()` — lookup слова;
-- JSON-обёртки `*_json()` для вызова из Kotlin.
+- `reset_mobile_bridge()` — сброс кеша для тестов или завершения приложения.
 
-## Поведение
+## Что изменилось в v8
 
-- словари открываются лениво и кешируются;
-- при смене набора путей старый cached service закрывается;
-- для Kotlin подготовлены JSON-friendly payload-ы без привязки к Python dataclass-объектам.
+- bridge принимает только существующие **обычные файлы**;
+- директории и другие non-file paths теперь отклоняются явной ошибкой;
+- summary использует metadata реально открытого `DictionaryService`, а не косвенную повторную конфигурацию.
 
 ## Где используется
 

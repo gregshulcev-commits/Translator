@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Provider layer для второй строки нижней панели.
+Provider layer для второй строки нижней панели desktop UI.
 
 ## Доступные провайдеры
 
@@ -13,14 +13,20 @@ Provider layer для второй строки нижней панели.
 
 ## `ArgosContextProvider`
 
-В v6 провайдер стал более «бережным» к пользователю:
+Провайдер перед реальным вызовом проверяет `argos_direction_ready(direction)`.
 
-- перед переводом он вызывает `argos_direction_ready(direction)`;
-- если `argostranslate` не установлен, возвращается понятная подсказка;
-- если runtime есть, но модели для нужного направления нет, пользователь получает сообщение с путём **Перевод → Офлайн-модели Argos…**;
-- только после проверки готовности вызывается `argostranslate.translate.translate()`.
+Если runtime или модель не готовы, пользователь получает понятное сообщение вместо неясной runtime-ошибки.
 
-То есть ошибка «нет модели / нет optional dependency» теперь обрабатывается на уровне UX, а не только как runtime exception.
+## `LibreTranslateContextProvider`
+
+В `v8` для него важны следующие вещи:
+
+- URL сначала нормализуется;
+- можно указывать как базовый адрес, так и полный endpoint;
+- public-host `libretranslate.com` требует API key;
+- запрос сначала отправляется как JSON;
+- при несовместимости сервера автоматически выполняется fallback на `application/x-www-form-urlencoded`;
+- HTTP-ошибки стараются извлечь текст из JSON-ответа.
 
 ## `YandexCloudContextProvider`
 
@@ -29,7 +35,7 @@ Provider layer для второй строки нижней панели.
 - `Folder ID`;
 - `API key` или `IAM token`.
 
-Если `Folder ID` не указан, запрос даже не уходит в сеть.
+Если конфигурация неполная, запрос даже не уходит в сеть.
 
 ## `ContextTranslationService`
 
@@ -37,16 +43,10 @@ Provider layer для второй строки нижней панели.
 
 - хранит активный provider id;
 - пересобирает провайдеры при изменении настроек;
+- умеет давать diagnostics через `provider_status()`;
 - выполняет перевод асинхронно;
-- выдаёт `ContextTranslationResult` в UI callback.
-
-В связке с `MainWindow` результат теперь сначала кладётся в очередь, а потом применяется в главном Tk-потоке.
+- возвращает `ContextTranslationResult` в UI callback.
 
 ## Почему это отдельный модуль
 
-Словарный перевод слова и контекстный перевод предложения — разные задачи. Этот слой позволяет добавлять новые online / offline-провайдеры без изменений в document workflow и без переписывания viewer-а.
-
-
-## Связь с Android branch
-
-В v7 provider layer пока подключён только к desktop UI. Android-клиент использует отдельный `mobile_api.py` и словарный lookup, а не `ContextTranslationService`.
+Словарный перевод слова и контекстный перевод предложения — разные задачи. Этот слой позволяет развивать online/offline providers без переписывания document workflow и без вмешательства в Android bridge.

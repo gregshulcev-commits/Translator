@@ -9,34 +9,6 @@
 
 Интерфейсы описаны в `src/pdf_word_translator/plugin_api.py`.
 
-## DocumentPlugin
-
-Минимальный контракт:
-
-- `plugin_id()`
-- `supported_extensions()`
-- `can_open(path)`
-- `open(path)` -> `DocumentSession`
-
-### Реализованные document plugins
-
-- `PyMuPdfDocumentPlugin` — PDF
-- `PlainTextDocumentPlugin` — TXT
-- `Fb2DocumentPlugin` — FB2
-
-## DictionaryPlugin
-
-Минимальный контракт:
-
-- `plugin_id()`
-- `lookup(word)` -> `LookupResult`
-- `available_entries()`
-
-### Реализованные dictionary plugins
-
-- `SQLiteDictionaryPlugin`
-- `CompositeDictionaryPlugin`
-
 ## Built-in plugins
 
 Загружаются всегда:
@@ -44,15 +16,38 @@
 - `document.pdf.pymupdf`
 - `document.txt`
 - `document.fb2`
-- composite dictionary plugin, который объединяет встроенный глоссарий и все найденные SQLite-паки
+- composite dictionary plugin, который объединяет:
+  - встроенный EN→RU словарь;
+  - встроенный RU→EN словарь;
+  - все найденные runtime `*.sqlite` packs.
 
-## External plugins
+## External plugins в v8
 
-Папка для внешних Python-плагинов:
+Внешние Python-плагины поддерживаются, но теперь работают по принципу **explicit opt-in**.
+
+Папка для внешних плагинов:
 
 ```text
 ~/.local/share/pdf_word_translator_mvp/plugins/
 ```
+
+Для включения загрузки нужно явно выставить:
+
+```bash
+export PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1
+```
+
+Без этой переменной `PluginLoader` не импортирует внешние `*.py` файлы.
+
+## Дополнительные ограничения безопасности
+
+Если external plugins включены, загрузчик дополнительно:
+
+- игнорирует symlink/non-regular paths;
+- игнорирует директории и файлы с небезопасными POSIX permission bits;
+- использует уникальные module names, чтобы не сталкивать внешние модули между собой.
+
+## Формат внешнего плагина
 
 Каждый внешний `*.py` файл может определить функцию:
 
@@ -61,13 +56,13 @@ def register_plugins():
     return [my_plugin_instance]
 ```
 
-Внешние plugins кешируются `PluginLoader` и учитываются при `create_dictionary_plugin()`, поэтому hot-reload словарного слоя не теряет внешние dictionary plugins.
+Возвращаемые объекты должны реализовывать `DocumentPlugin` или `DictionaryPlugin`.
 
 ## Почему словарные паки реализованы как SQLite, а не как Python-плагины
 
-Словарь — это в первую очередь **данные**, а не код. Поэтому для словарей в MVP выбран гибридный подход:
+Словарь — это в первую очередь **данные**, а не код. Поэтому для словарей выбран гибридный подход:
 
 - логика lookup — в Python-плагине;
 - словарные базы — в `*.sqlite` паках.
 
-Так проще добавлять новые словари без модификации кода приложения.
+Так проще добавлять новые словари без модификации кода приложения и без лишнего расширения attack surface.

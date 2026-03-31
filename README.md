@@ -1,38 +1,55 @@
-# Офлайн переводчик документов по клику на слово — MVP v7
+# Офлайн переводчик документов по клику на слово — MVP v8
 
 ## Что это
 
-Проект состоит уже из двух связанных веток:
+Проект состоит из двух связанных частей:
 
 1. **desktop MVP** на Python + Tkinter для Linux;
-2. **APK branch prototype** с отдельным Android UI и переиспользованием словарного Python-слоя.
+2. **android-client** как отдельная APK-ветка с нативным Android UI.
 
-Главная идея проекта не изменилась:
+Базовый сценарий не изменился:
 
 - открыть документ;
 - быстро найти незнакомое слово;
 - получить словарную подсказку по клику;
-- при необходимости показать контекстный перевод предложения через optional provider layer.
+- при необходимости включить отдельный optional provider layer для контекстного перевода предложения.
 
-## Что нового в v7
+## Что сделано в v8
 
-### Desktop
+`v8` — это результат слияния двух исходных веток:
 
-- окно **«Как установить Argos…»** больше не открывается как узкий `messagebox`;
-- вместо этого используется **растягиваемый help dialog** с нормальным переносом текста;
-- команды из справки можно **скопировать кнопкой**;
-- обновлены README и профильные `.md`-документы без отдельного release notes файла.
+- ветки `v7` с Android/APK-источниками и `mobile_api.py`;
+- ветки `v7_fixed` с багфиксами по LibreTranslate, UI и Argos manager.
 
-### Android / APK branch
+### Основные изменения
 
-- добавлена директория **`android-client/`** с исходниками отдельного Android-клиента;
-- добавлен **`src/pdf_word_translator/mobile_api.py`** — узкий JSON-friendly bridge для мобильного клиента;
-- Android-ветка использует:
-  - **native Android UI**;
-  - **Chaquopy** для вызова Python-словаря;
-  - **PdfRenderer** для базового рендера PDF-страниц;
-  - встроенные SQLite-словари как assets;
-- добавлена документация по Android-ветке, способу установки и текущим ограничениям.
+- слиты desktop-улучшения и Android-ветка в один исходный проект;
+- возвращены и закреплены исправления для **LibreTranslate**:
+  - нормализация URL;
+  - понятная диагностика конфигурации;
+  - fallback с JSON на `application/x-www-form-urlencoded`;
+  - более понятные HTTP-ошибки;
+  - проверка `EN → RU` и `RU → EN` из UI;
+- возвращены адаптивные исправления GUI:
+  - растягиваемый toolbar с нормальным поиском;
+  - адаптивный каталог словарей;
+  - адаптивный менеджер Argos-моделей;
+  - корректный `wraplength` для длинных текстовых блоков;
+- сохранено улучшение из `v7`: окно **«Как установить Argos…»** остаётся отдельным растягиваемым read-only dialog с кнопкой копирования команд;
+- усилена безопасность хранения настроек:
+  - `settings.json` сохраняется атомарно;
+  - на POSIX файл принудительно получает права `0600`;
+- усилена безопасность загрузки внешних Python-плагинов:
+  - external plugins теперь **opt-in**;
+  - для включения нужен `PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1`;
+  - загрузчик игнорирует небезопасные директории/файлы с некорректными правами доступа;
+- усилен `mobile_api.py`:
+  - bridge принимает только существующие **обычные файлы**, а не директории;
+  - summary строится из реально открытого `DictionaryService`;
+- проектная версия поднята до **v8**;
+- Android module получил обновлённый build identifier:
+  - `versionCode = 8`;
+  - `versionName = "0.8.0-v8-merge"`.
 
 ## Что уже умеет desktop MVP
 
@@ -45,21 +62,30 @@
 - ставить и импортировать **Argos-модели** из GUI;
 - работать со словарями через каталог, SQLite, CSV и FreeDict TEI;
 - масштабировать документ до **800%**;
-- сохранять настройки интерфейса.
+- сохранять настройки интерфейса и провайдеров.
 
 ## Что уже умеет Android branch
 
-Текущая Android-ветка — это **первый рабочий источник кода**, а не готовый release APK.
+Android-ветка по-прежнему включена как **исходный код**, а не как готовый release APK.
 
-Она уже включает:
+В архиве уже есть:
+
+- `android-client/`;
+- `src/pdf_word_translator/mobile_api.py`;
+- Kotlin UI prototype;
+- Chaquopy bridge;
+- PdfRenderer prototype;
+- bundled SQLite assets.
+
+Текущие возможности Android-ветки:
 
 - открытие PDF через системный picker;
 - базовый рендер PDF-страниц;
-- переход между страницами;
+- перелистывание страниц;
 - словарный lookup по введённому слову;
 - переключение `EN → RU` / `RU → EN`;
 - bootstrap встроенных SQLite-словарей из assets;
-- вызов общего Python-слоя через `mobile_api.py`.
+- вызов общего Python-словарного слоя через `mobile_api.py`.
 
 ## Что пока не входит
 
@@ -67,7 +93,7 @@
 - перевод текста на изображениях;
 - удаление словарей и Argos-моделей из GUI;
 - tap-to-word selection внутри Android PDF viewer;
-- готовый собранный APK внутри этого архива.
+- готовый собранный APK внутри архива.
 
 ## Быстрый старт на desktop (Linux)
 
@@ -101,16 +127,9 @@ source .venv/bin/activate
 PYTHONPATH=src python -m pdf_word_translator.app /path/to/file.pdf
 ```
 
-## Офлайн нейронный перевод через Argos
+## Контекстный перевод
 
-Argos остаётся **optional-слоем** поверх словарного desktop MVP.
-
-Чтобы он заработал, нужны:
-
-1. Python runtime `argostranslate`;
-2. модель нужного направления (`EN → RU` или `RU → EN`).
-
-### Рекомендуемый путь через GUI
+### Argos (офлайн)
 
 ```bash
 source .venv/bin/activate
@@ -125,7 +144,7 @@ python -m pip install -r requirements-optional.txt
 4. установите модель;
 5. выберите провайдер **Argos (офлайн)**.
 
-### CLI helper
+CLI helper:
 
 ```bash
 source .venv/bin/activate
@@ -133,6 +152,43 @@ PYTHONPATH=src python tools/install_argos_model.py --list
 PYTHONPATH=src python tools/install_argos_model.py --from-lang en --to-lang ru
 PYTHONPATH=src python tools/install_argos_model.py --from-lang ru --to-lang en
 PYTHONPATH=src python tools/install_argos_model.py --file /path/to/model.argosmodel
+```
+
+### LibreTranslate
+
+По умолчанию desktop теперь ориентируется на **self-hosted** адрес:
+
+```text
+http://127.0.0.1:5000
+```
+
+Что важно:
+
+- можно указать как базовый адрес, так и полный endpoint `/translate`;
+- для публичного `libretranslate.com` нужен **API key**;
+- в окне настроек доступна отдельная проверка обоих направлений `EN ↔ RU`.
+
+### Yandex Cloud
+
+Для Yandex Cloud по-прежнему обязательны:
+
+- `Folder ID`;
+- `API key` или `IAM token`.
+
+## External plugins
+
+Внешние Python-плагины поддерживаются, но теперь выключены по умолчанию.
+
+Чтобы разрешить их загрузку, включите переменную окружения:
+
+```bash
+export PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1
+```
+
+Папка внешних плагинов:
+
+```text
+~/.local/share/pdf_word_translator_mvp/plugins/
 ```
 
 ## Android branch: как открыть и собрать
@@ -145,9 +201,9 @@ android-client/
 
 ### Что важно понимать
 
-- это **отдельная UI-ветка**, не перенос Tkinter на Android;
+- это **отдельная UI-ветка**, а не перенос Tkinter на Android;
 - Android-клиент использует **тот же словарный код**, но через `mobile_api.py`;
-- в этом архиве **нет готового Gradle wrapper** и **нет уже собранного APK**, потому что в рабочем окружении не было Android SDK/Gradle.
+- в архиве **нет готового Gradle wrapper** и **нет уже собранного APK**, потому что в рабочем окружении не было Android SDK/Gradle.
 
 ### Рекомендуемый способ запуска
 
@@ -156,7 +212,7 @@ android-client/
 3. убедитесь, что Android SDK установлен;
 4. соберите `debug` APK из IDE.
 
-Подробности смотри в:
+Подробности:
 
 - `android-client/README.md`
 - `docs/ANDROID_STATUS.md`
@@ -164,15 +220,16 @@ android-client/
 ## Документация по проекту
 
 - `docs/USER_GUIDE.md` — пользовательские сценарии desktop и Android branch;
-- `docs/ARCHITECTURE.md` — архитектура desktop и mobile bridge;
-- `docs/ANDROID_STATUS.md` — текущее состояние APK-ветки;
+- `docs/ARCHITECTURE.md` — архитектура desktop, provider layer и mobile bridge;
+- `docs/ANDROID_STATUS.md` — состояние APK-ветки;
 - `docs/MODULES_INDEX.md` — индекс модулей;
 - `docs/ROADMAP.md` — сделанное и следующие шаги;
 - `docs/KNOWN_LIMITATIONS.md` — актуальные ограничения;
+- `docs/PLUGIN_SYSTEM.md` — политика загрузки built-in и external plugins;
 - `docs/modules/main_window.md` — desktop UI слой;
 - `docs/modules/mobile_api.md` — bridge-модуль для Android;
 - `docs/modules/context_providers.md` — optional provider layer;
-- `docs/modules/argos_manager.md` — lifecycle Argos моделей.
+- `docs/modules/plugin_loader.md` — загрузка built-in и opt-in external plugins.
 
 ## Тестирование
 
@@ -182,15 +239,18 @@ PYTHONPATH=src pytest
 xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
 ```
 
-Актуально для v7:
+Актуально для v8:
 
-- `pytest`: **37 passed, 2 skipped**;
+- `pytest`: **49 passed, 2 skipped**;
 - GUI smoke test desktop: проходит;
-- Android-ветка проверена на уровне структуры проекта, Python bridge и наличия bundled assets.
+- Android-ветка проверена на уровне структуры проекта, Python bridge и наличия bundled assets;
+- финальная сборка APK в этой среде не выполнялась.
 
 ## Ограничения текущей ветки
 
 - desktop PDF по-прежнему требует текстовый слой;
-- Argos сейчас ориентирован на **EN ↔ RU**;
+- Argos ориентирован на **EN ↔ RU**;
 - Android branch пока использует **ручной ввод слова**, а не tap-to-word selection по PDF;
-- APK source включён, но финальная сборка APK в этом архиве не выполнена.
+- APK source включён, но финальная сборка APK в этом архиве не выполнена;
+- external plugins теперь требуют явного opt-in;
+- credentials cloud-провайдеров хранятся локально в `settings.json`, но файл сохраняется с ограниченными правами доступа.

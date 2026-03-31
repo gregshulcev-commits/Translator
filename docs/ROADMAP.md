@@ -1,69 +1,44 @@
-# Roadmap
+# Roadmap MVP v8
 
-## Сделано в MVP v7
+## Что уже сделано
 
-### Desktop
+### Desktop stability
 
-- просмотр PDF / TXT / FB2;
-- клик по слову и компактная словарная карточка;
-- поиск по документу;
-- непрерывная прокрутка и zoom до 800%;
-- lazy render видимых страниц;
-- bundled SQLite-словари EN→RU и RU→EN;
-- каталог словарных пакетов;
-- optional provider layer;
-- offline Argos workflow с GUI manager;
-- исправления v5 по scroll-back, Treeview rowheight, async queue и `settings.json`;
-- исправление v7 для **окна справки Argos**: теперь оно растягивается и позволяет копировать команды.
+- merged desktop bugfix branch и Android source branch;
+- восстановлены responsive-исправления для UI;
+- возвращены исправления LibreTranslate и Argos diagnostics;
+- сохранён расширенный Argos help dialog;
+- сохранено масштабирование документа до 800%.
 
-### Android / APK branch
+### Mobile / APK branch
 
-- создана директория `android-client/`;
-- добавлен native Android UI prototype;
-- добавлен `mobile_api.py` как общий словарный bridge;
-- добавлен bootstrap встроенных SQLite assets;
-- добавлен PDF render prototype через Android API;
-- добавлен ручной словарный lookup внутри Android-клиента.
+- сохранена директория `android-client/`;
+- сохранён `mobile_api.py` как узкий bridge-модуль;
+- сохранены bundled SQLite assets и базовая Kotlin/Chaquopy интеграция.
 
-## Ближайший следующий шаг (desktop)
+### Security hardening
 
-- удаление словарей из GUI;
-- удаление Argos-моделей из GUI;
-- прогресс-бар или фоновые job-ы для сетевых операций;
-- сохранить last-opened document и last-view position;
-- улучшить rendering performance ещё сильнее.
+- `settings.json` сохраняется атомарно и с правами `0600` на POSIX;
+- external Python plugins переведены в opt-in режим;
+- mobile bridge отклоняет non-file dictionary paths.
 
-## Ближайший следующий шаг (Android)
+### Test coverage
 
-- tap-to-word selection по PDF;
-- слой text/token coordinates для Android viewer;
-- повторное использование контекстного provider layer там, где это уместно;
-- baseline UX для планшетов и телефонов;
-- добавить Gradle wrapper и зафиксировать сборочный pipeline.
+- объединены старые и новые regression tests;
+- добавлены проверки LibreTranslate/UI bugfixes;
+- добавлены проверки security hardening;
+- итоговый результат: `49 passed, 2 skipped`.
 
-## Следующий слой перевода
+## Ближайшие шаги
 
-- расширить набор offline-моделей и направлений поверх manager pattern;
-- добавить выбор источника второй строки: provider result / dictionary example / both;
-- попробовать file-level neural translation как отдельный слой, не ломая словарный MVP.
+1. Продолжить развитие desktop-версии без переписывания архитектуры.
+2. Усилить UX и тестирование provider layer.
+3. Развить Android как отдельный клиент поверх `mobile_api.py`.
 
-## v1.1
+## Следующие практические задачи
 
-- OCR-plugin;
-- постраничное распознавание;
-- редактирование OCR-результата пользователем;
-- поддержка текста на изображениях.
-
-## v1.2
-
-- EPUB / DOCX plugins;
-- пользовательские профили словарей;
-- экспорт незнакомых слов.
-
-## v2
-
-- полноценный Android-клиент с tap-to-word workflow;
-- стабильный pipeline сборки APK;
-- translation plugin layer для фраз и предложений;
-- нейронный перевод как optional pack / model family;
-- возможная смена desktop GUI backend-а при сохранении сервисов и словарного слоя.
+- tap-to-word selection для Android PDF viewer;
+- подготовка Gradle wrapper и воспроизводимой APK-сборки;
+- удаление словарных паков и Argos-моделей из GUI;
+- расширение provider diagnostics и offline-first сценариев;
+- при необходимости — отдельный UX для явного включения external plugins из GUI/CLI.

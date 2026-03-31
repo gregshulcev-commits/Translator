@@ -24,6 +24,12 @@ def _xdg_path(env_name: str, fallback: Path) -> Path:
     raw = os.environ.get(env_name)
     return Path(raw).expanduser() if raw else fallback
 
+def _env_flag(env_name: str, default: bool = False) -> bool:
+    raw = str(os.environ.get(env_name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
 
 RUNTIME_DATA_DIR = _xdg_path("XDG_DATA_HOME", Path.home() / ".local" / "share") / "pdf_word_translator_mvp"
 RUNTIME_CACHE_DIR = _xdg_path("XDG_CACHE_HOME", Path.home() / ".cache") / "pdf_word_translator_mvp"
@@ -32,6 +38,7 @@ RUNTIME_DICTIONARY_DIR = RUNTIME_DATA_DIR / "dictionaries"
 RUNTIME_DOWNLOAD_DIR = RUNTIME_CACHE_DIR / "downloads"
 EXTERNAL_PLUGIN_DIR = RUNTIME_DATA_DIR / "plugins"
 SETTINGS_FILE = RUNTIME_DATA_DIR / "settings.json"
+ENABLE_EXTERNAL_PLUGINS = _env_flag("PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS", False)
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,7 @@ class AppConfig:
     runtime_download_dir: Path = RUNTIME_DOWNLOAD_DIR
     external_plugin_dir: Path = EXTERNAL_PLUGIN_DIR
     settings_file: Path = SETTINGS_FILE
+    enable_external_plugins: bool = ENABLE_EXTERNAL_PLUGINS
 
     def ensure_runtime_directories(self) -> None:
         """Create runtime directories if they do not exist yet."""

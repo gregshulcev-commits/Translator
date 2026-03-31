@@ -1,8 +1,10 @@
-"""Builtin and external plugin loading.
+"""Builtin and optional external plugin loading.
 
-The loader keeps the MVP simple: builtin plugins are always available, and any
-additional ``*.py`` files placed into the external plugin directory may provide
-``register_plugins()`` returning plugin instances.
+Builtin plugins are always available. External Python plugins remain supported,
+but are now opt-in and loaded only when
+``PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1`` (or the matching
+``AppConfig.enable_external_plugins`` flag) is enabled. This reduces accidental
+execution of arbitrary ``*.py`` files dropped into the runtime plugin directory.
 """
 from __future__ import annotations
 
@@ -11,7 +13,10 @@ from importlib import util as importlib_util
 from pathlib import Path
 from types import ModuleType
 from typing import List
+import hashlib
 import logging
+import os
+import stat
 
 from .config import AppConfig
 from .plugin_api import DictionaryPlugin, DocumentPlugin
@@ -40,13 +45,29 @@ class PluginRegistry:
         return self.dictionary_plugins[0] if self.dictionary_plugins else None
 
 
+def _module_name_for_path(path: Path) -> str:
+    digest = hashlib.sha1(str(path.resolve()).encode("utf-8")).hexdigest()[:12]
+    safe_stem = "".join(ch if ch.isalnum() else "_" for ch in path.stem) or "plugin"
+    return f"pdf_word_translator_external_{safe_stem}_{digest}"
+
+
 def _load_external_module(path: Path) -> ModuleType | None:
-    spec = importlib_util.spec_from_file_location(path.stem, path)
+    spec = importlib_util.spec_from_file_location(_module_name_for_path(path), path)
     if spec is None or spec.loader is None:
         return None
     module = importlib_util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _has_insecure_permissions(path: Path) -> bool:
+    if os.name != "posix":
+        return False
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return True
+    return bool(mode & (stat.S_IWGRP | stat.S_IWOTH))
 
 
 class PluginLoader:
@@ -108,11 +129,30 @@ class PluginLoader:
         self._load_external_plugins()
 
     def _load_external_plugins(self) -> None:
+        if not self._config.enable_external_plugins:
+            LOGGER.info(
+                "External plugins are disabled by default. Set PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1 to enable loading from %s",
+                self._config.external_plugin_dir,
+            )
+            return
+
         plugin_dir = self._config.external_plugin_dir
         if not plugin_dir.exists():
             return
+        if plugin_dir.is_symlink() or not plugin_dir.is_dir():
+            LOGGER.warning("External plugin directory is not a regular directory: %s", plugin_dir)
+            return
+        if _has_insecure_permissions(plugin_dir):
+            LOGGER.warning("External plugin directory has insecure permissions and will be ignored: %s", plugin_dir)
+            return
 
         for plugin_file in sorted(plugin_dir.glob("*.py")):
+            if plugin_file.is_symlink() or not plugin_file.is_file():
+                LOGGER.warning("Skipping non-regular external plugin path: %s", plugin_file)
+                continue
+            if _has_insecure_permissions(plugin_file):
+                LOGGER.warning("Skipping external plugin with insecure permissions: %s", plugin_file)
+                continue
             try:
                 module = _load_external_module(plugin_file)
                 if module is None:

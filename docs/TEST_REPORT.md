@@ -1,58 +1,63 @@
-# Отчёт о тестировании v7
+# Отчёт о тестировании v8
 
-## 1. Pytest
+## Дата
+
+- 2026-03-30
+
+## Проверенный объём
+
+### 1. Автоматические Python-тесты
+
+Запуск:
+
+```bash
+PYTHONPATH=src pytest
+```
 
 Результат:
 
-- **37 тестов проходят**;
-- **2 теста пропущены** как ожидаемые environment-specific сценарии.
+- **49 passed, 2 skipped**.
 
-Покрыты:
+В проверку вошли:
 
-- config;
-- normalizer;
-- SQLite dictionary;
-- FreeDict importer;
-- TXT / FB2 plugins;
-- dictionary installer helpers;
-- workflow;
-- переключение направления EN ↔ RU;
-- реальные PDF пользователя;
-- settings store;
-- регрессии v5;
-- Argos model manager и provider hints;
+- document plugins и dictionary workflow;
+- Argos manager;
 - `mobile_api.py`;
-- v7 regression для Argos help dialog;
-- Android branch layout smoke checks.
+- Android branch layout checks;
+- LibreTranslate/UI regression tests;
+- security hardening tests.
 
-## 2. GUI smoke test (desktop)
+### 2. Desktop GUI smoke test
 
-Проверено:
+Запуск:
 
-- окно создаётся;
-- многостраничный PDF открывается;
-- слово `configuration` переводится корректно;
-- scroll двигает viewport;
-- `Ctrl + колесо` меняет zoom;
-- нижняя панель не ломается после v7-изменений.
+```bash
+xvfb-run -a env PYTHONPATH=src python tests/smoke_gui.py
+```
 
-## 3. Android branch
+Результат:
 
-Автоматически проверено в Python-тестах:
+- тест проходит без падения;
+- приложение открывает тестовый PDF;
+- словарный lookup и базовый viewer workflow сохраняются рабочими.
 
-- присутствуют ключевые файлы `android-client/`;
-- в Android module включён `com.chaquo.python`;
-- Python source подключается из общего `../../src`;
-- bundled SQLite assets лежат на ожидаемом месте.
+### 3. Ручной code review в рамках merge
 
-Не проверено автоматически в этой среде:
+Проверены и исправлены:
 
-- Gradle sync;
-- реальная сборка APK;
-- запуск на устройстве/эмуляторе.
+- откат bugfix-ветки в `context_providers.py`;
+- откат bugfix-ветки в `main_window.py`;
+- default URL и устойчивость `settings_store.py`;
+- загрузка external plugins по умолчанию;
+- обработка non-file путей в `mobile_api.py`.
 
-Причина проста: в рабочем окружении не было Android SDK и системного Gradle.
+## Что не проверено в этой среде
 
-## 4. Вывод
+- Gradle sync Android-проекта;
+- финальная сборка APK;
+- запуск Android-клиента на устройстве;
+- реальный сетевой вызов cloud providers с production credentials.
 
-v7 стабилен для desktop-ветки и уже содержит **исходный код Android branch** с bridge-слоем, документацией и тестовым покрытием Python-части.
+## Вывод
+
+Merged source `v8` стабилен для desktop-ветки, содержит Android source branch, проходит Python regression suite и smoke test, а также включает дополнительные исправления по безопасности и устойчивости.

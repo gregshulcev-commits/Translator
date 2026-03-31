@@ -75,17 +75,7 @@ def current_service_summary_json() -> str:
 
 def pack_infos() -> list[dict[str, object]]:
     service = _dictionary_service_for_paths(tuple(str(path) for path in _resolve_dictionary_paths(None)))
-    return [
-        {
-            "pack_id": info.pack_id,
-            "title": info.title,
-            "direction": info.direction,
-            "category": info.category,
-            "description": info.description,
-            "source": info.source,
-        }
-        for info in service.pack_infos()
-    ]
+    return _serialize_pack_infos(service)
 
 
 def pack_infos_json() -> str:
@@ -185,6 +175,7 @@ def _deduplicate_existing_paths(paths: Iterable[str]) -> tuple[Path, ...]:
     resolved: list[Path] = []
     seen: set[str] = set()
     missing: list[str] = []
+    invalid: list[str] = []
     for raw_path in paths:
         path = Path(raw_path).expanduser().resolve()
         key = str(path)
@@ -194,12 +185,31 @@ def _deduplicate_existing_paths(paths: Iterable[str]) -> tuple[Path, ...]:
         if not path.exists():
             missing.append(key)
             continue
+        if not path.is_file():
+            invalid.append(key)
+            continue
         resolved.append(path)
     if missing:
         raise ValueError(f"Dictionary file(s) not found: {', '.join(missing)}")
+    if invalid:
+        raise ValueError(f"Dictionary path(s) must point to regular files: {', '.join(invalid)}")
     if not resolved:
         raise ValueError("No existing SQLite dictionaries found for mobile bridge.")
     return tuple(resolved)
+
+
+def _serialize_pack_infos(service: DictionaryService) -> list[dict[str, object]]:
+    return [
+        {
+            "pack_id": info.pack_id,
+            "title": info.title,
+            "direction": info.direction,
+            "category": info.category,
+            "description": info.description,
+            "source": info.source,
+        }
+        for info in service.pack_infos()
+    ]
 
 
 def _serialize_service_summary(service: DictionaryService, paths: Sequence[str]) -> dict[str, object]:
@@ -208,7 +218,7 @@ def _serialize_service_summary(service: DictionaryService, paths: Sequence[str])
         "configured_paths": list(paths),
         "entry_count": service.entry_count(),
         "pack_count": service.pack_count(),
-        "pack_infos": pack_infos(),
+        "pack_infos": _serialize_pack_infos(service),
         "bundled_asset_names": bundled_dictionary_asset_names(),
     }
 

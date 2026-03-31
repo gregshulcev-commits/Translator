@@ -1,5 +1,6 @@
-2026-03-25 11:46:54 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pwt_v7_work/pdf_word_translator_mvp_v7/data/starter_dictionary.sqlite
-2026-03-25 11:46:54 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/pwt_v7_work/pdf_word_translator_mvp_v7/data/starter_dictionary_ru_en.sqlite
-2026-03-25 11:46:54 | INFO | pdf_word_translator.plugin_loader | Loaded 3 document plugin(s) and 1 dictionary plugin(s)
-2026-03-25 11:46:58 | INFO | pdf_word_translator.services.document_service | Opening document with document.pdf.pymupdf: /tmp/tmp2a9zvnlv/gui.pdf
-2026-03-25 11:46:58 | INFO | pdf_word_translator.plugins.document_pdf_pymupdf | Using PyMuPDF document provider for /tmp/tmp2a9zvnlv/gui.pdf
+2026-03-30 09:07:01 | INFO | pdf_word_translator.plugin_loader | External plugins are disabled by default. Set PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS=1 to enable loading from /home/oai/.local/share/pdf_word_translator_mvp/plugins
+2026-03-30 09:07:01 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/work_merge/pdf_word_translator_mvp_v8/data/starter_dictionary.sqlite
+2026-03-30 09:07:01 | INFO | pdf_word_translator.plugins.dictionary_sqlite | SQLite dictionary connected: /mnt/data/work_merge/pdf_word_translator_mvp_v8/data/starter_dictionary_ru_en.sqlite
+2026-03-30 09:07:01 | INFO | pdf_word_translator.plugin_loader | Loaded 3 document plugin(s) and 1 dictionary plugin(s)
+2026-03-30 09:07:01 | INFO | pdf_word_translator.services.document_service | Opening document with document.pdf.pymupdf: /tmp/tmp033fzitu/gui.pdf
+2026-03-30 09:07:01 | INFO | pdf_word_translator.plugins.document_pdf_pymupdf | Using PyMuPDF document provider for /tmp/tmp033fzitu/gui.pdf

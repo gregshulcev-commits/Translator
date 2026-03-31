@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Хранит вычисление путей проекта и runtime-каталогов.
+Хранит вычисление путей проекта, runtime-каталогов и runtime flags.
 
 ## Основные пути
 
@@ -18,9 +18,10 @@
 
 ## `AppConfig`
 
-Dataclass, которая собирает все пути в одном объекте и умеет создавать runtime-каталоги.
+Dataclass, которая собирает ключевые пути и runtime flags в одном объекте.
 
-## Что важно в v3
+## Что важно в v8
 
 - исправленный `PROJECT_ROOT` сохранён;
-- добавлен `settings_file` для persistent UI settings.
+- добавлен flag `enable_external_plugins`;
+- значение по умолчанию берётся из `PDF_WORD_TRANSLATOR_ENABLE_EXTERNAL_PLUGINS`.

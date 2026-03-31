@@ -15,6 +15,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 import webbrowser
+import urllib.parse
 
 from PIL import ImageTk
 
@@ -28,7 +29,14 @@ from ..models import (
     WordToken,
 )
 from ..plugin_loader import PluginLoader
-from ..providers.context_providers import ContextTranslationService
+from ..providers.context_providers import (
+    LIBRETRANSLATE_DEFAULT_URL,
+    ContextTranslationService,
+    libretranslate_configuration_diagnostic,
+    libretranslate_translate_url,
+    normalize_libretranslate_url,
+    probe_libretranslate_directions,
+)
 from ..services.dictionary_service import DictionaryService
 from ..services.document_service import DocumentService
 from ..services.translation_workflow import TranslationWorkflow, TranslationViewModel
@@ -75,6 +83,13 @@ class CanvasPageLayout:
     @property
     def bottom(self) -> int:
         return self.top + self.height
+
+
+@dataclass(frozen=True)
+class TreeColumnSpec:
+    column_id: str
+    min_width: int
+    weight: int
 
 
 class MainWindow:
@@ -197,6 +212,102 @@ class MainWindow:
     def _treeview_rowheight(linespace: int) -> int:
         return max(24, int(linespace) + 10)
 
+    @staticmethod
+    def _responsive_wraplength(width: int, *, padding: int = 48, minimum: int = 320) -> int:
+        return max(minimum, max(0, int(width)) - padding)
+
+    @staticmethod
+    def _responsive_tree_widths(
+        total_width: int,
+        *,
+        minimums: tuple[int, ...],
+        weights: tuple[int, ...],
+        reserve: int = 36,
+    ) -> tuple[int, ...]:
+        if len(minimums) != len(weights):
+            raise ValueError("minimums and weights must have identical length")
+        if not minimums:
+            return ()
+        minimum_total = sum(int(value) for value in minimums)
+        available = max(minimum_total, int(total_width) - reserve)
+        extra = available - minimum_total
+        total_weight = max(1, sum(int(weight) for weight in weights))
+        widths: list[int] = []
+        consumed = 0
+        for index, (minimum, weight) in enumerate(zip(minimums, weights)):
+            if index == len(minimums) - 1:
+                width = available - consumed
+            else:
+                width = int(minimum) + (extra * int(weight)) // total_weight
+            widths.append(max(int(minimum), width))
+            consumed += widths[-1]
+        return tuple(widths)
+
+    @classmethod
+    def _apply_tree_column_layout(
+        cls,
+        tree: ttk.Treeview,
+        specs: tuple[TreeColumnSpec, ...],
+        *,
+        available_width: int,
+    ) -> None:
+        widths = cls._responsive_tree_widths(
+            available_width,
+            minimums=tuple(spec.min_width for spec in specs),
+            weights=tuple(spec.weight for spec in specs),
+        )
+        for spec, width in zip(specs, widths):
+            tree.column(spec.column_id, width=width, stretch=True)
+
+    @classmethod
+    def _bind_tree_column_layout(
+        cls,
+        container: tk.Misc,
+        tree: ttk.Treeview,
+        specs: tuple[TreeColumnSpec, ...],
+    ) -> None:
+        def on_configure(event: tk.Event | None = None) -> None:
+            width = 0
+            if event is not None:
+                width = int(getattr(event, "width", 0) or 0)
+            if width <= 0:
+                try:
+                    width = container.winfo_width()
+                except tk.TclError:
+                    width = 0
+            if width > 0:
+                cls._apply_tree_column_layout(tree, specs, available_width=width)
+
+        container.bind("<Configure>", on_configure)
+        container.after_idle(on_configure)
+
+    @classmethod
+    def _bind_wraplength_widgets(
+        cls,
+        container: tk.Misc,
+        widgets: tuple[tk.Misc, ...],
+        *,
+        padding: int = 24,
+        minimum: int = 240,
+    ) -> None:
+        def on_configure(event: tk.Event | None = None) -> None:
+            width = 0
+            if event is not None:
+                width = int(getattr(event, "width", 0) or 0)
+            if width <= 0:
+                try:
+                    width = container.winfo_width()
+                except tk.TclError:
+                    width = 0
+            if width <= 0:
+                return
+            wraplength = cls._responsive_wraplength(width, padding=padding, minimum=minimum)
+            for widget in widgets:
+                widget.configure(wraplength=wraplength)
+
+        container.bind("<Configure>", on_configure)
+        container.after_idle(on_configure)
+
     def _build_menubar(self) -> None:
         self.menu_bar = tk.Menu(self.root)
         self.root.configure(menu=self.menu_bar)
@@ -257,38 +368,39 @@ class MainWindow:
     def _build_toolbar(self) -> None:
         toolbar = ttk.Frame(self.root, padding=(12, 10, 12, 4), style="Toolbar.TFrame")
         toolbar.pack(side=tk.TOP, fill=tk.X)
+        toolbar.columnconfigure(12, weight=1)
 
-        ttk.Button(toolbar, text="Открыть", command=self.open_document_dialog, style="Toolbar.TButton").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(toolbar, text="◀", command=self.previous_page, width=3).pack(side=tk.LEFT)
-        ttk.Button(toolbar, text="▶", command=self.next_page, width=3).pack(side=tk.LEFT, padx=(4, 10))
+        ttk.Button(toolbar, text="Открыть", command=self.open_document_dialog, style="Toolbar.TButton").grid(row=0, column=0, padx=(0, 6), sticky="w")
+        ttk.Button(toolbar, text="◀", command=self.previous_page, width=3).grid(row=0, column=1, sticky="w")
+        ttk.Button(toolbar, text="▶", command=self.next_page, width=3).grid(row=0, column=2, padx=(4, 10), sticky="w")
 
         self.page_label = ttk.Label(toolbar, text="Стр. 0 / 0")
-        self.page_label.pack(side=tk.LEFT, padx=(0, 12))
+        self.page_label.grid(row=0, column=3, padx=(0, 12), sticky="w")
 
-        ttk.Button(toolbar, text="-", command=lambda: self.change_zoom(-0.1), width=3).pack(side=tk.LEFT)
-        ttk.Button(toolbar, text="+", command=lambda: self.change_zoom(0.1), width=3).pack(side=tk.LEFT, padx=(4, 10))
+        ttk.Button(toolbar, text="-", command=lambda: self.change_zoom(-0.1), width=3).grid(row=0, column=4, sticky="w")
+        ttk.Button(toolbar, text="+", command=lambda: self.change_zoom(0.1), width=3).grid(row=0, column=5, padx=(4, 10), sticky="w")
 
         self.zoom_label = ttk.Label(toolbar, text="120%")
-        self.zoom_label.pack(side=tk.LEFT, padx=(0, 12))
+        self.zoom_label.grid(row=0, column=6, padx=(0, 12), sticky="w")
 
         self.direction_button = ttk.Button(toolbar, text=self._direction_display(self.settings.direction), command=self.toggle_direction)
-        self.direction_button.pack(side=tk.LEFT, padx=(0, 12))
+        self.direction_button.grid(row=0, column=7, padx=(0, 12), sticky="w")
 
-        ttk.Button(toolbar, text="A−", command=lambda: self.change_ui_font_size(-1), width=4).pack(side=tk.LEFT)
-        ttk.Button(toolbar, text="A+", command=lambda: self.change_ui_font_size(1), width=4).pack(side=tk.LEFT, padx=(4, 12))
+        ttk.Button(toolbar, text="A−", command=lambda: self.change_ui_font_size(-1), width=4).grid(row=0, column=8, sticky="w")
+        ttk.Button(toolbar, text="A+", command=lambda: self.change_ui_font_size(1), width=4).grid(row=0, column=9, padx=(4, 12), sticky="w")
 
-        ttk.Button(toolbar, text="Словари", command=self.show_dictionary_catalog).pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Button(toolbar, text="Словари", command=self.show_dictionary_catalog).grid(row=0, column=10, padx=(0, 12), sticky="w")
 
-        ttk.Label(toolbar, text="Поиск:").pack(side=tk.LEFT)
+        ttk.Label(toolbar, text="Поиск:").grid(row=0, column=11, sticky="w")
         self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=30)
-        self.search_entry.pack(side=tk.LEFT, padx=(4, 4))
-        ttk.Button(toolbar, text="Найти", command=self.execute_search).pack(side=tk.LEFT)
-        ttk.Button(toolbar, text="Пред.", command=lambda: self.navigate_search(-1)).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Button(toolbar, text="След.", command=lambda: self.navigate_search(1)).pack(side=tk.LEFT, padx=(4, 0))
+        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var)
+        self.search_entry.grid(row=0, column=12, padx=(4, 4), sticky="ew")
+        ttk.Button(toolbar, text="Найти", command=self.execute_search).grid(row=0, column=13, sticky="w")
+        ttk.Button(toolbar, text="Пред.", command=lambda: self.navigate_search(-1)).grid(row=0, column=14, padx=(4, 0), sticky="w")
+        ttk.Button(toolbar, text="След.", command=lambda: self.navigate_search(1)).grid(row=0, column=15, padx=(4, 0), sticky="w")
 
         self.search_status_label = ttk.Label(toolbar, text="")
-        self.search_status_label.pack(side=tk.LEFT, padx=(10, 0))
+        self.search_status_label.grid(row=0, column=16, padx=(10, 0), sticky="w")
 
     def _build_content(self) -> None:
         body = ttk.Frame(self.root, padding=(12, 4, 12, 8), style="App.TFrame")
@@ -316,6 +428,7 @@ class MainWindow:
         self.translation_panel = ttk.Frame(body, padding=14, style="InfoCard.TFrame")
         self.translation_panel.pack(fill=tk.X, pady=(10, 0))
         self.translation_panel.bind("<Button-3>", self.show_dictionary_context_menu)
+        self.translation_panel.bind("<Configure>", self._on_translation_panel_configure)
         self._build_translation_panel(self.translation_panel)
 
     def _build_translation_panel(self, parent: ttk.Frame) -> None:
@@ -408,11 +521,13 @@ class MainWindow:
         self._schedule_viewport_update()
 
     def _on_canvas_configure(self, _event: tk.Event) -> None:
-        wraplength = max(400, self.canvas.winfo_width() - 48)
-        for widget in (self.meta_label, self.best_label, self.example_label, self.alternatives_label):
-            widget.configure(wraplength=wraplength)
         self._schedule_viewport_update()
         self._schedule_visible_render()
+
+    def _on_translation_panel_configure(self, event: tk.Event) -> None:
+        wraplength = self._responsive_wraplength(getattr(event, "width", 0), padding=48, minimum=400)
+        for widget in (self.meta_label, self.best_label, self.example_label, self.alternatives_label):
+            widget.configure(wraplength=wraplength)
 
     def _schedule_viewport_update(self) -> None:
         if not self._viewport_update_scheduled:
@@ -822,15 +937,8 @@ class MainWindow:
             self.alternatives_var.set(f"Проверенные формы: {forms}")
 
     def _provider_idle_text(self) -> str:
-        provider_id = self.context_service.active_provider_id()
-        if provider_id == "disabled":
-            return "Контекстный перевод отключён."
-        if provider_id == "argos":
-            ready, message = argos_direction_ready(self.settings.direction)
-            if ready:
-                return f"{self.context_service.provider_name()}: локальная модель готова к переводу контекста."
-            return self._compact_text(message, limit=260)
-        return f"{self.context_service.provider_name()}: готов к переводу контекста."
+        diagnostic = self.context_service.provider_status(self.settings.direction)
+        return self._compact_text(diagnostic.message, limit=260)
 
     def _dictionary_example(self, entry) -> str:
         if not entry.examples:
@@ -1008,42 +1116,73 @@ class MainWindow:
 
         window = tk.Toplevel(self.root)
         window.title("Каталог словарей")
-        window.geometry("920x480")
+        window.geometry("980x560")
+        window.minsize(760, 420)
         window.transient(self.root)
         window.configure(background="#eef2f7")
+        window.rowconfigure(0, weight=1)
+        window.columnconfigure(0, weight=1)
         self._catalog_window = window
         window.protocol("WM_DELETE_WINDOW", self._close_catalog_window)
 
         top = ttk.Frame(window, padding=12, style="App.TFrame")
-        top.pack(fill=tk.BOTH, expand=True)
+        top.grid(row=0, column=0, sticky="nsew")
+        top.rowconfigure(0, weight=1)
+        top.columnconfigure(0, weight=1)
+
+        tree_container = ttk.Frame(top, style="App.TFrame")
+        tree_container.grid(row=0, column=0, sticky="nsew")
+        tree_container.rowconfigure(0, weight=1)
+        tree_container.columnconfigure(0, weight=1)
 
         columns = ("title", "direction", "category", "source")
-        tree = ttk.Treeview(top, columns=columns, show="headings", height=10, style="Catalog.Treeview")
+        tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=10, style="Catalog.Treeview")
         tree.heading("title", text="Пакет")
         tree.heading("direction", text="Направление")
         tree.heading("category", text="Категория")
         tree.heading("source", text="Источник")
-        tree.column("title", width=270, anchor="w")
-        tree.column("direction", width=90, anchor="center")
-        tree.column("category", width=110, anchor="center")
-        tree.column("source", width=360, anchor="w")
-        tree.pack(fill=tk.BOTH, expand=True)
+        tree.column("title", anchor="w")
+        tree.column("direction", anchor="center")
+        tree.column("category", anchor="center")
+        tree.column("source", anchor="w")
+        tree.grid(row=0, column=0, sticky="nsew")
         tree.bind("<<TreeviewSelect>>", self._on_catalog_selection_changed)
         self._catalog_tree = tree
 
+        yscroll = ttk.Scrollbar(tree_container, orient=tk.VERTICAL, command=tree.yview)
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll = ttk.Scrollbar(tree_container, orient=tk.HORIZONTAL, command=tree.xview)
+        xscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        self._bind_tree_column_layout(
+            tree_container,
+            tree,
+            (
+                TreeColumnSpec("title", 240, 30),
+                TreeColumnSpec("direction", 120, 12),
+                TreeColumnSpec("category", 140, 14),
+                TreeColumnSpec("source", 280, 44),
+            ),
+        )
+
         bottom = ttk.Frame(top, padding=(0, 10, 0, 0), style="App.TFrame")
-        bottom.pack(fill=tk.X)
+        bottom.grid(row=1, column=0, sticky="ew")
+        bottom.columnconfigure(0, weight=1)
         self._catalog_description_var = tk.StringVar(value="Выберите пакет, чтобы увидеть описание и установить его.")
         self._catalog_source_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self._catalog_description_var, style="Context.TLabel", wraplength=860, justify=tk.LEFT).pack(anchor="w")
-        ttk.Label(bottom, textvariable=self._catalog_source_var, style="Muted.TLabel", wraplength=860, justify=tk.LEFT).pack(anchor="w", pady=(4, 10))
+        description_label = ttk.Label(bottom, textvariable=self._catalog_description_var, style="Context.TLabel", justify=tk.LEFT)
+        description_label.grid(row=0, column=0, sticky="ew")
+        source_label = ttk.Label(bottom, textvariable=self._catalog_source_var, style="Muted.TLabel", justify=tk.LEFT)
+        source_label.grid(row=1, column=0, sticky="ew", pady=(4, 10))
+        self._bind_wraplength_widgets(bottom, (description_label, source_label), padding=20, minimum=260)
 
         buttons = ttk.Frame(bottom, style="App.TFrame")
-        buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="Установить выбранный пакет", command=self.install_selected_catalog_pack).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Открыть источник", command=self.open_selected_catalog_source).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(buttons, text="Обновить", command=self._populate_dictionary_catalog_tree).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(buttons, text="Закрыть", command=self._close_catalog_window).pack(side=tk.RIGHT)
+        buttons.grid(row=2, column=0, sticky="ew")
+        buttons.columnconfigure(3, weight=1)
+        ttk.Button(buttons, text="Установить выбранный пакет", command=self.install_selected_catalog_pack).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Открыть источник", command=self.open_selected_catalog_source).grid(row=0, column=1, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Обновить", command=self._populate_dictionary_catalog_tree).grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Закрыть", command=self._close_catalog_window).grid(row=0, column=3, sticky="e")
 
         self._populate_dictionary_catalog_tree()
 
@@ -1111,8 +1250,9 @@ class MainWindow:
         if spec is None:
             return
         url = spec.urls[0] if spec.urls else spec.source
-        if not url.startswith("http"):
-            messagebox.showinfo("Источник словаря", f"Для этого пакета источник локальный: {url}")
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme.lower() not in {"http", "https"}:
+            messagebox.showinfo("Источник словаря", f"Для этого пакета источник локальный или неподдерживаемый: {url}")
             return
         webbrowser.open(url)
 
@@ -1128,51 +1268,85 @@ class MainWindow:
 
         window = tk.Toplevel(self.root)
         window.title("Офлайн-модели Argos")
-        window.geometry("980x520")
+        window.geometry("1040x620")
+        window.minsize(820, 480)
         window.transient(self.root)
         window.configure(background="#eef2f7")
+        window.rowconfigure(0, weight=1)
+        window.columnconfigure(0, weight=1)
         self._argos_window = window
         window.protocol("WM_DELETE_WINDOW", self._close_argos_model_manager)
 
         top = ttk.Frame(window, padding=12, style="App.TFrame")
-        top.pack(fill=tk.BOTH, expand=True)
+        top.grid(row=0, column=0, sticky="nsew")
+        top.rowconfigure(1, weight=1)
+        top.columnconfigure(0, weight=1)
 
         intro = (
             "Argos используется только для офлайн-контекстного перевода предложений. "
             "Сначала установите optional dependency argostranslate, затем скачайте модель для EN → RU "
-            "или RU → EN прямо из этого окна. Если модель уже скачана заранее, можно импортировать локальный .argosmodel файл."
+            "или RU → EN прямо из этого окна. Статус «Доступна из сети» означает, что пакет найден в индексе, "
+            "но ещё не установлен локально. Если модель уже скачана заранее, можно импортировать локальный .argosmodel файл."
         )
-        ttk.Label(top, text=intro, style="Context.TLabel", wraplength=930, justify=tk.LEFT).pack(anchor="w", pady=(0, 10))
+        intro_label = ttk.Label(top, text=intro, style="Context.TLabel", justify=tk.LEFT)
+        intro_label.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        tree_container = ttk.Frame(top, style="App.TFrame")
+        tree_container.grid(row=1, column=0, sticky="nsew")
+        tree_container.rowconfigure(0, weight=1)
+        tree_container.columnconfigure(0, weight=1)
 
         columns = ("direction", "status", "version", "package")
-        tree = ttk.Treeview(top, columns=columns, show="headings", height=8, style="Catalog.Treeview")
+        tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=8, style="Catalog.Treeview")
         tree.heading("direction", text="Направление")
         tree.heading("status", text="Статус")
         tree.heading("version", text="Версия")
         tree.heading("package", text="Пакет")
-        tree.column("direction", width=120, anchor="center")
-        tree.column("status", width=190, anchor="center")
-        tree.column("version", width=110, anchor="center")
-        tree.column("package", width=500, anchor="w")
-        tree.pack(fill=tk.BOTH, expand=True)
+        tree.column("direction", anchor="center")
+        tree.column("status", anchor="center")
+        tree.column("version", anchor="center")
+        tree.column("package", anchor="w")
+        tree.grid(row=0, column=0, sticky="nsew")
         tree.bind("<<TreeviewSelect>>", self._on_argos_selection_changed)
         self._argos_tree = tree
 
+        yscroll = ttk.Scrollbar(tree_container, orient=tk.VERTICAL, command=tree.yview)
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll = ttk.Scrollbar(tree_container, orient=tk.HORIZONTAL, command=tree.xview)
+        xscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        self._bind_tree_column_layout(
+            tree_container,
+            tree,
+            (
+                TreeColumnSpec("direction", 160, 18),
+                TreeColumnSpec("status", 190, 20),
+                TreeColumnSpec("version", 120, 12),
+                TreeColumnSpec("package", 320, 50),
+            ),
+        )
+
         bottom = ttk.Frame(top, padding=(0, 10, 0, 0), style="App.TFrame")
-        bottom.pack(fill=tk.X)
+        bottom.grid(row=2, column=0, sticky="ew")
+        bottom.columnconfigure(0, weight=1)
         self._argos_status_var = tk.StringVar(value="Выберите направление или используйте текущий перевод EN ↔ RU.")
         self._argos_hint_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self._argos_status_var, style="Context.TLabel", wraplength=930, justify=tk.LEFT).pack(anchor="w")
-        ttk.Label(bottom, textvariable=self._argos_hint_var, style="Muted.TLabel", wraplength=930, justify=tk.LEFT).pack(anchor="w", pady=(4, 10))
+        status_label = ttk.Label(bottom, textvariable=self._argos_status_var, style="Context.TLabel", justify=tk.LEFT)
+        status_label.grid(row=0, column=0, sticky="ew")
+        hint_label = ttk.Label(bottom, textvariable=self._argos_hint_var, style="Muted.TLabel", justify=tk.LEFT)
+        hint_label.grid(row=1, column=0, sticky="ew", pady=(4, 10))
+        self._bind_wraplength_widgets(top, (intro_label,), padding=24, minimum=280)
+        self._bind_wraplength_widgets(bottom, (status_label, hint_label), padding=20, minimum=260)
 
         buttons = ttk.Frame(bottom, style="App.TFrame")
-        buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="Обновить список из сети", command=lambda: self._populate_argos_model_tree(update_index=True)).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Установить выбранную модель", command=self.install_selected_argos_model).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(buttons, text="Импортировать .argosmodel…", command=self.import_argos_model_from_dialog).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(buttons, text="Выбрать Argos", command=self.select_argos_provider).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(buttons, text="Справка", command=self.show_argos_installation_help).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(buttons, text="Закрыть", command=self._close_argos_model_manager).pack(side=tk.RIGHT)
+        buttons.grid(row=2, column=0, sticky="ew")
+        buttons.columnconfigure(5, weight=1)
+        ttk.Button(buttons, text="Обновить список из сети", command=lambda: self._populate_argos_model_tree(update_index=True)).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Установить выбранную модель", command=self.install_selected_argos_model).grid(row=0, column=1, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Импортировать .argosmodel…", command=self.import_argos_model_from_dialog).grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Выбрать Argos", command=self.select_argos_provider).grid(row=0, column=3, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Справка", command=self.show_argos_installation_help).grid(row=0, column=4, padx=(6, 0), sticky="w")
+        ttk.Button(buttons, text="Закрыть", command=self._close_argos_model_manager).grid(row=0, column=5, sticky="e")
 
         self._populate_argos_model_tree(update_index=False)
 
@@ -1226,7 +1400,7 @@ class MainWindow:
         if model.installed:
             return "Установлена"
         if model.available_for_download:
-            return "Доступна"
+            return "Доступна из сети"
         return "Нет пакета"
 
     def _select_current_argos_direction(self) -> None:
@@ -1263,7 +1437,7 @@ class MainWindow:
         if model.installed:
             status = prefix + "локальная модель установлена и готова к офлайн-переводу."
         elif model.available_for_download:
-            status = prefix + "модель доступна для загрузки из индекса Argos."
+            status = prefix + "пакет найден в индексе Argos и доступен для загрузки из сети, но ещё не установлен локально."
         else:
             status = prefix + "локальная модель пока не найдена."
         self._argos_status_var.set(status)
@@ -1365,21 +1539,57 @@ class MainWindow:
         provider_id = self.context_service.active_provider_id()
         window = tk.Toplevel(self.root)
         window.title("Настройка провайдера контекстного перевода")
-        window.geometry("560x320")
+        window.geometry("760x420")
+        window.minsize(560, 320)
         window.transient(self.root)
         window.configure(background="#eef2f7")
+        window.rowconfigure(0, weight=1)
+        window.columnconfigure(0, weight=1)
 
         frame = ttk.Frame(window, padding=14, style="App.TFrame")
-        frame.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frame, text=f"Текущий провайдер: {self.context_service.provider_name(provider_id)}", style="CardTitle.TLabel").pack(anchor="w")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        ttk.Label(frame, text=f"Текущий провайдер: {self.context_service.provider_name(provider_id)}", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+
+        save_button_text = "OK"
+        save = window.destroy
+        extra_button: ttk.Button | None = None
 
         if provider_id == "libretranslate":
             url_var = tk.StringVar(value=self.settings.libretranslate_url)
             api_var = tk.StringVar(value=self.settings.libretranslate_api_key)
-            ttk.Label(frame, text="URL сервера LibreTranslate:").pack(anchor="w", pady=(12, 2))
-            ttk.Entry(frame, textvariable=url_var, width=64).pack(fill=tk.X)
-            ttk.Label(frame, text="API key (можно оставить пустым для self-hosted):").pack(anchor="w", pady=(10, 2))
-            ttk.Entry(frame, textvariable=api_var, width=64, show="*").pack(fill=tk.X)
+            endpoint_var = tk.StringVar(value="")
+            status_var = tk.StringVar(value="")
+
+            ttk.Label(frame, text="URL сервера LibreTranslate:").grid(row=1, column=0, sticky="w", pady=(12, 2))
+            url_entry = ttk.Entry(frame, textvariable=url_var)
+            url_entry.grid(row=2, column=0, sticky="ew")
+            ttk.Label(frame, text="API key (оставьте пустым для self-hosted, если сервер не требует ключ):").grid(row=3, column=0, sticky="w", pady=(10, 2))
+            api_entry = ttk.Entry(frame, textvariable=api_var, show="*")
+            api_entry.grid(row=4, column=0, sticky="ew")
+
+            endpoint_label = ttk.Label(frame, textvariable=endpoint_var, style="Muted.TLabel", justify=tk.LEFT)
+            endpoint_label.grid(row=5, column=0, sticky="ew", pady=(8, 2))
+            hint_text = (
+                f"Self-hosted по умолчанию: {LIBRETRANSLATE_DEFAULT_URL}. Можно указать и полный endpoint /translate. "
+                "Для managed libretranslate.com нужен API key."
+            )
+            hint_label = ttk.Label(frame, text=hint_text, style="Context.TLabel", justify=tk.LEFT)
+            hint_label.grid(row=6, column=0, sticky="ew", pady=(4, 2))
+            status_label = ttk.Label(frame, textvariable=status_var, style="Muted.TLabel", justify=tk.LEFT)
+            status_label.grid(row=7, column=0, sticky="ew", pady=(4, 2))
+            self._bind_wraplength_widgets(frame, (endpoint_label, hint_label, status_label), padding=28, minimum=260)
+
+            def refresh_libretranslate_hint(*_args) -> None:
+                normalized = normalize_libretranslate_url(url_var.get())
+                endpoint = libretranslate_translate_url(normalized)
+                endpoint_var.set(f"Эффективный endpoint: {endpoint or '—'}")
+                status_var.set(libretranslate_configuration_diagnostic(url_var.get(), api_var.get()).message)
+
+            url_var.trace_add("write", refresh_libretranslate_hint)
+            api_var.trace_add("write", refresh_libretranslate_hint)
+            refresh_libretranslate_hint()
+            url_entry.focus_set()
 
             def save() -> None:
                 self.settings.libretranslate_url = url_var.get()
@@ -1392,16 +1602,46 @@ class MainWindow:
                 if self.current_view_model is not None:
                     self._start_context_translation(self.current_view_model)
 
+            def test_libretranslate() -> None:
+                diagnostic = libretranslate_configuration_diagnostic(url_var.get(), api_var.get())
+                status_var.set(diagnostic.message)
+                if diagnostic.state == "error":
+                    messagebox.showwarning("LibreTranslate", diagnostic.message)
+                    return
+                self.root.configure(cursor="watch")
+                window.configure(cursor="watch")
+                window.update_idletasks()
+                try:
+                    ok, report = self._probe_libretranslate_settings(url_var.get(), api_var.get())
+                finally:
+                    self.root.configure(cursor="")
+                    window.configure(cursor="")
+                if ok:
+                    status_var.set("LibreTranslate: проверка EN ↔ RU выполнена успешно.")
+                    messagebox.showinfo("Проверка LibreTranslate", report)
+                else:
+                    status_var.set("LibreTranslate: проверка завершилась с ошибками, см. подробности.")
+                    messagebox.showwarning("Проверка LibreTranslate", report)
+
+            extra_button = ttk.Button(frame, text="Проверить EN ↔ RU", command=test_libretranslate)
+
         elif provider_id == "yandex":
             folder_var = tk.StringVar(value=self.settings.yandex_folder_id)
             api_var = tk.StringVar(value=self.settings.yandex_api_key)
             iam_var = tk.StringVar(value=self.settings.yandex_iam_token)
-            ttk.Label(frame, text="Folder ID (обязательно для Translate API):").pack(anchor="w", pady=(12, 2))
-            ttk.Entry(frame, textvariable=folder_var, width=64).pack(fill=tk.X)
-            ttk.Label(frame, text="API key:").pack(anchor="w", pady=(10, 2))
-            ttk.Entry(frame, textvariable=api_var, width=64, show="*").pack(fill=tk.X)
-            ttk.Label(frame, text="IAM token (если используешь Bearer):").pack(anchor="w", pady=(10, 2))
-            ttk.Entry(frame, textvariable=iam_var, width=64, show="*").pack(fill=tk.X)
+            status_var = tk.StringVar(
+                value=self.context_service.provider_status(self.settings.direction, provider_id="yandex").message
+            )
+
+            ttk.Label(frame, text="Folder ID (обязательно для Translate API):").grid(row=1, column=0, sticky="w", pady=(12, 2))
+            ttk.Entry(frame, textvariable=folder_var).grid(row=2, column=0, sticky="ew")
+            ttk.Label(frame, text="API key:").grid(row=3, column=0, sticky="w", pady=(10, 2))
+            ttk.Entry(frame, textvariable=api_var, show="*").grid(row=4, column=0, sticky="ew")
+            ttk.Label(frame, text="IAM token (если используешь Bearer):").grid(row=5, column=0, sticky="w", pady=(10, 2))
+            ttk.Entry(frame, textvariable=iam_var, show="*").grid(row=6, column=0, sticky="ew")
+            status_label = ttk.Label(frame, textvariable=status_var, style="Muted.TLabel", justify=tk.LEFT)
+            status_label.grid(row=7, column=0, sticky="ew", pady=(10, 0))
+            self._bind_wraplength_widgets(frame, (status_label,), padding=28, minimum=260)
 
             def save() -> None:
                 self.settings.yandex_folder_id = folder_var.get()
@@ -1435,7 +1675,7 @@ class MainWindow:
                 info = (
                     "Argos — офлайн провайдер для контекстного перевода предложений.\n\n"
                     f"{status_line}\n"
-                    "Для текущего направления модель найдена в индексе Argos. Откройте менеджер офлайн-моделей, чтобы скачать её прямо из GUI."
+                    "Для текущего направления пакет найден в индексе Argos и доступен для загрузки из сети, но пока не установлен локально. Откройте менеджер офлайн-моделей, чтобы скачать его прямо из GUI."
                 )
             else:
                 info = (
@@ -1443,26 +1683,60 @@ class MainWindow:
                     f"{status_line}\n"
                     "Локальная модель для текущего направления пока не найдена. Её можно скачать из GUI или импортировать из локального .argosmodel файла."
                 )
-            ttk.Label(frame, text=info, style="Context.TLabel", wraplength=520, justify=tk.LEFT).pack(anchor="w", pady=(14, 10))
+            info_label = ttk.Label(frame, text=info, style="Context.TLabel", justify=tk.LEFT)
+            info_label.grid(row=1, column=0, sticky="ew", pady=(14, 10))
+            self._bind_wraplength_widgets(frame, (info_label,), padding=28, minimum=260)
             ttk.Button(
                 frame,
                 text="Открыть менеджер офлайн-моделей…",
                 command=lambda: (window.destroy(), self.show_argos_model_manager()),
-            ).pack(anchor="w")
+            ).grid(row=2, column=0, sticky="w")
 
             def save() -> None:
                 window.destroy()
 
         else:
-            ttk.Label(frame, text="Для отключённого режима дополнительных настроек нет.", style="Context.TLabel").pack(anchor="w", pady=(14, 10))
+            info_label = ttk.Label(frame, text="Для отключённого режима дополнительных настроек нет.", style="Context.TLabel", justify=tk.LEFT)
+            info_label.grid(row=1, column=0, sticky="ew", pady=(14, 10))
+            self._bind_wraplength_widgets(frame, (info_label,), padding=28, minimum=260)
 
             def save() -> None:
                 window.destroy()
 
         buttons = ttk.Frame(frame, style="App.TFrame")
-        buttons.pack(side=tk.BOTTOM, fill=tk.X, pady=(16, 0))
-        ttk.Button(buttons, text="OK", command=save).pack(side=tk.RIGHT)
-        ttk.Button(buttons, text="Отмена", command=window.destroy).pack(side=tk.RIGHT, padx=(0, 6))
+        buttons.grid(row=99, column=0, sticky="ew", pady=(16, 0))
+        buttons.columnconfigure(0, weight=1)
+        if extra_button is not None:
+            extra_button.grid(in_=buttons, row=0, column=0, sticky="w")
+        ttk.Button(buttons, text=save_button_text, command=save).grid(row=0, column=1, sticky="e")
+        ttk.Button(buttons, text="Отмена", command=window.destroy).grid(row=0, column=2, padx=(6, 0), sticky="e")
+
+    def _probe_libretranslate_settings(self, base_url: str, api_key: str) -> tuple[bool, str]:
+        normalized = normalize_libretranslate_url(base_url)
+        endpoint = libretranslate_translate_url(normalized)
+        results = probe_libretranslate_directions(base_url, api_key, timeout=8)
+        lines = [
+            f"Сервер: {normalized or '—'}",
+            f"Endpoint: {endpoint or '—'}",
+        ]
+        all_ok = True
+        for direction in (EN_RU, RU_EN):
+            result = results.get(direction)
+            if result is None:
+                all_ok = False
+                lines.append(f"{self._direction_display(direction)}: ошибка — результат не получен")
+                continue
+            if result.ok:
+                lines.append(
+                    f"{self._direction_display(direction)}: OK — {self._compact_text(result.text, limit=120)}"
+                )
+                continue
+            all_ok = False
+            message = result.text or result.error or "контекстный перевод не вернул результат"
+            lines.append(
+                f"{self._direction_display(direction)}: ошибка — {self._compact_text(message, limit=160)}"
+            )
+        return all_ok, "\n".join(lines)
 
     def _show_readonly_text_dialog(self, title: str, message: str, *, geometry: str = "860x620") -> None:
         window = tk.Toplevel(self.root)

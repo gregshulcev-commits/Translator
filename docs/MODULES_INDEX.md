@@ -2,19 +2,19 @@
 
 ## Core / Application
 
-- `docs/modules/app.md`
-- `docs/modules/config.md`
-- `docs/modules/models.md`
-- `docs/modules/plugin_api.md`
-- `docs/modules/plugin_loader.md`
-- `docs/modules/translation_workflow.md`
-- `docs/modules/document_service.md`
-- `docs/modules/dictionary_service.md`
-- `docs/modules/mobile_api.md`
+- `docs/modules/app.md` — запуск приложения;
+- `docs/modules/config.md` — вычисление путей и runtime flags;
+- `docs/modules/models.md` — dataclass-модели;
+- `docs/modules/plugin_api.md` — контракты plugins/providers;
+- `docs/modules/plugin_loader.md` — built-in и opt-in external plugin loading;
+- `docs/modules/translation_workflow.md` — основной click-to-translate workflow;
+- `docs/modules/document_service.md` — orchestration document plugins;
+- `docs/modules/dictionary_service.md` — orchestration dictionary lookup;
+- `docs/modules/mobile_api.md` — Android/mobile bridge.
 
 ## Providers
 
-- `docs/modules/context_providers.md`
+- `docs/modules/context_providers.md` — optional provider layer.
 
 ## Plugins
 
