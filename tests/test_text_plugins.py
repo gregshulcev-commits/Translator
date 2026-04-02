@@ -1,3 +1,6 @@
+import pytest
+from defusedxml.common import DefusedXmlException
+
 from pathlib import Path
 
 from pdf_word_translator.plugins.document_fb2 import Fb2DocumentPlugin
@@ -45,3 +48,25 @@ def test_fb2_plugin_extracts_title_and_body(tmp_path: Path) -> None:
     tokens = session.get_tokens(0)
     assert any(token.normalized_text == "configuration" for token in tokens)
     assert session.search("interface")
+
+
+def test_fb2_plugin_rejects_xml_entities(tmp_path: Path) -> None:
+    fb2_path = tmp_path / "malicious.fb2"
+    fb2_path.write_text(
+        """<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE FictionBook [
+  <!ENTITY xxe "boom">
+]>
+<FictionBook xmlns='http://www.gribuser.ru/xml/fictionbook/2.0'>
+  <body>
+    <section>
+      <p>&xxe;</p>
+    </section>
+  </body>
+</FictionBook>
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DefusedXmlException):
+        Fb2DocumentPlugin().open(fb2_path)

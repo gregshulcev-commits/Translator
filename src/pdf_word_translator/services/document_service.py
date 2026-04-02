@@ -38,6 +38,13 @@ class DocumentService:
         self._path: Optional[Path] = None
         self._page_size_cache: Dict[int, tuple[float, float]] = {}
 
+    @staticmethod
+    def _close_session(session: DocumentSession) -> None:
+        try:
+            session.close()
+        except Exception as exc:  # pragma: no cover - defensive cleanup only
+            LOGGER.warning("Failed to close document session cleanly: %s", exc)
+
     @property
     def session(self) -> DocumentSession:
         if self._session is None:
@@ -67,11 +74,17 @@ class DocumentService:
         if plugin is None:
             raise RuntimeError(f"Формат файла не поддерживается: {path.suffix or path.name}")
         LOGGER.info("Opening document with %s: %s", plugin.plugin_id(), path)
+        new_session = plugin.open(path)
+        previous_session = self._session
+
         self._active_plugin = plugin
-        self._session = plugin.open(path)
+        self._session = new_session
         self._render_cache.clear()
         self._page_size_cache.clear()
         self._path = path
+
+        if previous_session is not None and previous_session is not new_session:
+            self._close_session(previous_session)
 
     def page_count(self) -> int:
         return self.session.page_count()

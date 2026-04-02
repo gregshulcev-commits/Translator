@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Iterable
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 from ..models import EN_RU, RU_EN, TranslationDirection
 from .dictionary_builder import DictionaryBuildEntry, DictionaryMetadata, build_dictionary_from_entries
@@ -29,6 +30,9 @@ DEFAULT_FREEDICT_RUS_ENG_URLS = (
     "https://download.freedict.org/generated/rus-eng/rus-eng.tei",
     "https://sources.debian.org/data/main/f/freedict/2022.04.21-1/rus-eng/rus-eng.tei",
 )
+
+
+MAX_FREEDICT_DOWNLOAD_BYTES = 128 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -57,15 +61,40 @@ def download_freedict_tei(destination: Path, urls: Iterable[str]) -> DownloadRes
     last_error: Exception | None = None
     for url in urls:
         try:
+            _validate_download_url(url)
             LOGGER.info("Downloading dictionary source: %s", url)
-            with urllib.request.urlopen(url, timeout=60) as response, destination.open("wb") as handle:
-                handle.write(response.read())
+            tmp_path = destination.parent / f".{destination.name}.tmp"
+            bytes_written = 0
+            with urllib.request.urlopen(url, timeout=60) as response, tmp_path.open("wb") as handle:  # nosec B310
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    bytes_written += len(chunk)
+                    if bytes_written > MAX_FREEDICT_DOWNLOAD_BYTES:
+                        raise RuntimeError(
+                            f"FreeDict source is too large ({bytes_written} bytes). "
+                            f"Limit: {MAX_FREEDICT_DOWNLOAD_BYTES} bytes."
+                        )
+                    handle.write(chunk)
+            tmp_path.replace(destination)
             return DownloadResult(path=destination, source_url=url)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except (RuntimeError, urllib.error.URLError, TimeoutError, OSError) as exc:
             LOGGER.warning("Failed to download %s: %s", url, exc)
             last_error = exc
+            tmp_path = destination.parent / f".{destination.name}.tmp"
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
 
     raise RuntimeError(f"Не удалось скачать FreeDict TEI. Последняя ошибка: {last_error}")
+
+
+
+
+def _validate_download_url(url: str) -> None:
+    parsed = urllib.parse.urlsplit(str(url or "").strip())
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(f"Unsupported FreeDict download URL: {url}")
 
 
 def build_dictionary_from_freedict_tei(

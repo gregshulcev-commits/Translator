@@ -54,6 +54,15 @@ class DocumentSession(ABC):
     def search(self, query: str) -> List[SearchHit]:
         raise NotImplementedError
 
+    def close(self) -> None:
+        """Release underlying resources.
+
+        Most lightweight text sessions do not need explicit cleanup, so the
+        default implementation is a no-op. Providers backed by native handles
+        (for example PyMuPDF) should override it.
+        """
+        return None
+
 
 class DocumentPlugin(ABC):
     """Provider for a document format."""

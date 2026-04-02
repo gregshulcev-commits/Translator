@@ -166,7 +166,7 @@ class LibreTranslateContextProvider(ContextTranslationProvider):
         for index, build_request in enumerate(request_builders):
             request = build_request(endpoint, payload)
             try:
-                with urllib.request.urlopen(request, timeout=self._timeout) as response:
+                with urllib.request.urlopen(request, timeout=self._timeout) as response:  # nosec B310
                     body = _read_json_response(response)
                 translated = str(body.get("translatedText", "")).strip()
                 if not translated:
@@ -220,10 +220,10 @@ class LibreTranslateContextProvider(ContextTranslationProvider):
 
 
 class YandexCloudContextProvider(ContextTranslationProvider):
-    def __init__(self, api_key: str = "", folder_id: str = "", iam_token: str = ""):
-        self._api_key = api_key.strip()
-        self._folder_id = folder_id.strip()
-        self._iam_token = iam_token.strip()
+    def __init__(self, api_key: str | None = None, folder_id: str | None = None, iam_token: str | None = None):
+        self._api_key = str(api_key or "").strip()
+        self._folder_id = str(folder_id or "").strip()
+        self._iam_token = str(iam_token or "").strip()
 
     def provider_id(self) -> str:
         return "yandex"
@@ -268,7 +268,7 @@ class YandexCloudContextProvider(ContextTranslationProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
                 body = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             try:

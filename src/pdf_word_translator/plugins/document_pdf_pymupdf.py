@@ -32,15 +32,20 @@ class PyMuPdfDocumentSession(DocumentSession):
         self._doc = fitz.open(path)
         self._page_cache: Dict[int, _PageCache] = {}
 
+    def _require_open_doc(self):
+        if self._doc is None:
+            raise RuntimeError("Документ уже закрыт")
+        return self._doc
+
     def page_count(self) -> int:
-        return self._doc.page_count
+        return self._require_open_doc().page_count
 
     def page_size(self, page_index: int) -> tuple[float, float]:
-        rect = self._doc[page_index].rect
+        rect = self._require_open_doc()[page_index].rect
         return float(rect.width), float(rect.height)
 
     def render_page(self, page_index: int, zoom: float):
-        page = self._doc[page_index]
+        page = self._require_open_doc()[page_index]
         matrix = fitz.Matrix(zoom, zoom)
         pixmap = page.get_pixmap(matrix=matrix, alpha=False)
         mode = "RGB" if pixmap.n < 4 else "RGBA"
@@ -80,7 +85,7 @@ class PyMuPdfDocumentSession(DocumentSession):
         if not query.strip():
             return results
         for page_index in range(self.page_count()):
-            page = self._doc[page_index]
+            page = self._require_open_doc()[page_index]
             rects = page.search_for(query)
             if not rects:
                 continue
@@ -90,11 +95,17 @@ class PyMuPdfDocumentSession(DocumentSession):
                 results.append(SearchHit(page_index=page_index, rect=(rect.x0, rect.y0, rect.x1, rect.y1), preview=preview))
         return results
 
+    def close(self) -> None:
+        if self._doc is not None:
+            self._doc.close()
+            self._doc = None
+        self._page_cache.clear()
+
     def _ensure_page_cache(self, page_index: int) -> _PageCache:
         if page_index in self._page_cache:
             return self._page_cache[page_index]
 
-        page = self._doc[page_index]
+        page = self._require_open_doc()[page_index]
         raw_words = page.get_text("words", sort=True)
         tokens: List[WordToken] = []
         sentence_words: List[Tuple[str, WordToken]] = []

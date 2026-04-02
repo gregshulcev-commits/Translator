@@ -1,0 +1,101 @@
+FIX BUG / аудит исходников
+==========================
+
+Что исправлено
+--------------
+1. Небезопасный XML-парсинг пользовательских/внешних файлов:
+   - src/pdf_word_translator/plugins/document_fb2.py
+   - src/pdf_word_translator/utils/freedict_importer.py
+   Исправление: переход на defusedxml, добавлены регрессионные тесты на запрет XML entities/DTD.
+
+2. Утечка ресурсов и неатомарное переключение документов:
+   - src/pdf_word_translator/plugin_api.py
+   - src/pdf_word_translator/plugins/document_pdf_pymupdf.py
+   - src/pdf_word_translator/services/document_service.py
+   Исправление: добавлен close() для DocumentSession, PyMuPDF session теперь закрывает native handle,
+   DocumentService сначала открывает новый документ, а старую сессию закрывает только после успешного переключения.
+   При неудачном открытии предыдущий документ сохраняется активным.
+
+3. Риск поломанной установки/обновления при ошибке публикации payload:
+   - tools/desktop_manager.py
+   Исправление: install/update теперь откатывают current -> previous обратно,
+   если публикация новой версии или desktop integration падает после staging.
+   Добавлен тест на rollback.
+
+4. Харденинг загрузки FreeDict:
+   - src/pdf_word_translator/utils/freedict_importer.py
+   Исправление: валидация URL scheme (только http/https), лимит размера,
+   атомарная запись через временный файл и replace().
+
+5. Мелкий security cleanup:
+   - src/pdf_word_translator/plugin_loader.py
+   Исправление: SHA1 для имени модуля заменён на BLAKE2s.
+
+Что проверено
+-------------
+1. Полный pytest:
+   - 66 passed, 2 skipped.
+   - Пропуски:
+     * tests/test_real_pdfs.py: integration PDFs отсутствуют в окружении.
+     * tests/test_real_pdfs.py: IRIO sample PDF отсутствует в окружении.
+
+2. compileall:
+   - src/ и tools/ компилируются без синтаксических ошибок.
+
+3. Bandit после правок:
+   - medium/high findings устранены;
+   - остались только low-уровневые эвристические предупреждения вокруг subprocess
+     и defensive exception flow.
+
+Что НЕ успел/не получилось/что ещё стоит проверить руками
+---------------------------------------------------------
+1. Не выполнялся полноценный GUI smoke на живом display server.
+   Смотреть:
+   - tests/smoke_gui.py
+   - src/pdf_word_translator/ui/main_window.py
+   - src/pdf_word_translator/ui/settings_dialog.py
+
+2. Не прогонялись реальные PDF-интеграционные образцы, которых нет в контейнере.
+   Смотреть:
+   - tests/test_real_pdfs.py
+
+3. Не выполнялась живая проверка сетевых интеграций с реальными внешними сервисами:
+   - LibreTranslate
+   - Yandex Cloud
+   - FreeDict download
+   - Argos install/download
+   Смотреть:
+   - src/pdf_word_translator/providers/context_providers.py
+   - src/pdf_word_translator/utils/freedict_importer.py
+   - src/pdf_word_translator/utils/argos_manager.py
+   - tools/install_argos_model.py
+
+4. Android ветка не собиралась в APK в этом окружении.
+   Смотреть:
+   - android-client/
+   - src/pdf_word_translator/mobile_api.py
+   - docs/ANDROID_STATUS.md
+
+5. Поведение install manager оставлено прежним: launcher/update/uninstall wrappers пишутся в ~/.local/bin,
+   даже если install_home задан кастомный. Это не критическая ошибка, но если нужна полностью
+   изолированная test/install схема, смотреть:
+   - tools/desktop_manager.py (functions local_bin_dir, create_runtime_wrappers, perform_install)
+
+Изменённые/добавленные тесты
+----------------------------
+- tests/test_text_plugins.py
+- tests/test_freedict_importer.py
+- tests/test_document_service.py
+- tests/test_desktop_manager_install_transaction.py
+
+Изменённые основные файлы
+------------------------
+- requirements.txt
+- src/pdf_word_translator/plugin_api.py
+- src/pdf_word_translator/plugin_loader.py
+- src/pdf_word_translator/plugins/document_fb2.py
+- src/pdf_word_translator/plugins/document_pdf_pymupdf.py
+- src/pdf_word_translator/providers/context_providers.py
+- src/pdf_word_translator/services/document_service.py
+- src/pdf_word_translator/utils/freedict_importer.py
+- tools/desktop_manager.py

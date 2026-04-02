@@ -46,7 +46,7 @@ class PluginRegistry:
 
 
 def _module_name_for_path(path: Path) -> str:
-    digest = hashlib.sha1(str(path.resolve()).encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.blake2s(str(path.resolve()).encode("utf-8"), digest_size=8).hexdigest()
     safe_stem = "".join(ch if ch.isalnum() else "_" for ch in path.stem) or "plugin"
     return f"pdf_word_translator_external_{safe_stem}_{digest}"
 

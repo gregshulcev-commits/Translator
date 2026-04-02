@@ -355,6 +355,13 @@ StartupNotify=true
     maybe_update_icon_cache()
 
 
+
+
+def publish_runtime_artifacts(payload_dir: Path) -> None:
+    create_runtime_wrappers(payload_dir)
+    create_desktop_entry(payload_dir)
+
+
 def install_into_stage(
     source_root: Path,
     stage_dir: Path,
@@ -420,6 +427,8 @@ def perform_install(args: argparse.Namespace) -> int:
 
     python_bin = args.python_bin or choose_python_binary()
     stage_dir = app_dir / f"_staging_{uuid.uuid4().hex}"
+    current_dir = current_payload_dir(install_home)
+    previous_dir = previous_payload_dir(install_home)
 
     try:
         stage_result = install_into_stage(
@@ -429,39 +438,53 @@ def perform_install(args: argparse.Namespace) -> int:
             install_optional=not args.skip_optional,
         )
 
-        current_dir = current_payload_dir(install_home)
-        previous_dir = previous_payload_dir(install_home)
-        if previous_dir.exists():
-            shutil.rmtree(previous_dir)
-        if current_dir.exists():
-            current_dir.rename(previous_dir)
-        stage_dir.rename(current_dir)
+        previous_backup_available = False
+        promoted_stage = False
+        try:
+            if previous_dir.exists():
+                shutil.rmtree(previous_dir)
+            if current_dir.exists():
+                current_dir.rename(previous_dir)
+                previous_backup_available = True
+            stage_dir.rename(current_dir)
+            promoted_stage = True
 
-        create_runtime_wrappers(current_dir)
-        create_desktop_entry(current_dir)
+            publish_runtime_artifacts(current_dir)
 
-        manifest = {
-            "app_command": APP_COMMAND,
-            "app_name": APP_NAME,
-            "branch": branch,
-            "current_payload_dir": str(current_dir),
-            "install_home": str(install_home),
-            "installed_at": now_iso(),
-            "installed_version": version,
-            "launcher_path": str(launcher_path()),
-            "optional_installed": stage_result["optional_installed"],
-            "optional_requested": not args.skip_optional,
-            "previous_payload_dir": str(previous_dir) if previous_dir.exists() else "",
-            "python_bin": python_bin,
-            "repo_url": repo_url or "",
-            "source_commit": args.source_commit or git_info.get("source_commit", ""),
-            "source_commit_short": git_info.get("source_commit_short", ""),
-            "source_project_root": str(source_root),
-            "source_type": args.source_type or git_info.get("source_type", "archive"),
-            "update_strategy": "git" if repo_url else "manual",
-            "venv_python": str(current_dir / ".venv" / "bin" / "python"),
-        }
-        save_manifest(install_home, manifest)
+            manifest = {
+                "app_command": APP_COMMAND,
+                "app_name": APP_NAME,
+                "branch": branch,
+                "current_payload_dir": str(current_dir),
+                "install_home": str(install_home),
+                "installed_at": now_iso(),
+                "installed_version": version,
+                "launcher_path": str(launcher_path()),
+                "optional_installed": stage_result["optional_installed"],
+                "optional_requested": not args.skip_optional,
+                "previous_payload_dir": str(previous_dir) if previous_dir.exists() else "",
+                "python_bin": python_bin,
+                "repo_url": repo_url or "",
+                "source_commit": args.source_commit or git_info.get("source_commit", ""),
+                "source_commit_short": git_info.get("source_commit_short", ""),
+                "source_project_root": str(source_root),
+                "source_type": args.source_type or git_info.get("source_type", "archive"),
+                "update_strategy": "git" if repo_url else "manual",
+                "venv_python": str(current_dir / ".venv" / "bin" / "python"),
+            }
+            save_manifest(install_home, manifest)
+        except Exception:
+            if promoted_stage and current_dir.exists():
+                shutil.rmtree(current_dir, ignore_errors=True)
+            if previous_backup_available and previous_dir.exists() and not current_dir.exists():
+                previous_dir.rename(current_dir)
+                try:
+                    publish_runtime_artifacts(current_dir)
+                except Exception as restore_exc:
+                    print_warn(
+                        f"Rollback restored the previous payload, but desktop integration refresh failed: {restore_exc}"
+                    )
+            raise
 
         print()
         print_info("Installation complete")
