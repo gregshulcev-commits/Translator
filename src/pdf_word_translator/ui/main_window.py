@@ -323,7 +323,7 @@ class MainWindow:
             self.canvas.configure(background=palette["canvas_bg"])
         if getattr(self, "_settings_dialog", None) is not None and self._settings_dialog.window.winfo_exists():
             self._settings_dialog.refresh_theme()
-        self._close_main_menu_popup()
+        self._refresh_main_menu_popup_theme()
 
     def _apply_window_size(
         self,
@@ -388,6 +388,34 @@ class MainWindow:
             widths.append(max(int(minimum), width))
             consumed += widths[-1]
         return tuple(widths)
+
+    @staticmethod
+    def _popup_anchor_position(
+        *,
+        root_left: int,
+        anchor_left: int,
+        anchor_top: int,
+        anchor_width: int,
+        anchor_height: int,
+        popup_width: int,
+        horizontal_margin: int = 8,
+        vertical_gap: int = 6,
+    ) -> tuple[int, int]:
+        minimum_left = max(0, int(root_left)) + max(0, int(horizontal_margin))
+        x = max(minimum_left, int(anchor_left) + int(anchor_width) - int(popup_width))
+        y = int(anchor_top) + int(anchor_height) + max(0, int(vertical_gap))
+        return x, y
+
+    @staticmethod
+    def _widget_belongs_to(widget: tk.Misc | None, ancestor: tk.Misc | None) -> bool:
+        if widget is None or ancestor is None:
+            return False
+        try:
+            widget_path = str(widget)
+            ancestor_path = str(ancestor)
+        except tk.TclError:
+            return False
+        return widget_path == ancestor_path or widget_path.startswith(f"{ancestor_path}.")
 
     @classmethod
     def _apply_tree_column_layout(
@@ -465,7 +493,6 @@ class MainWindow:
     def _build_toolbar(self) -> None:
         toolbar = ttk.Frame(self.root, padding=(12, 10, 12, 8), style="Toolbar.TFrame")
         toolbar.pack(side=tk.TOP, fill=tk.X)
-        toolbar.columnconfigure(1, weight=1)
         toolbar.columnconfigure(2, weight=1)
         self.toolbar = toolbar
 
@@ -474,9 +501,9 @@ class MainWindow:
         )
 
         center = ttk.Frame(toolbar, style="Toolbar.TFrame")
-        center.grid(row=0, column=1)
+        center.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.page_label = ttk.Label(center, text="Стр. 0 / 0", style="Page.TLabel")
-        self.page_label.pack(anchor="center")
+        self.page_label.pack(anchor="w")
 
         self.menu_button = ttk.Button(
             toolbar,
@@ -485,7 +512,7 @@ class MainWindow:
             command=self.toggle_main_menu_popup,
             style="Toolbar.TButton",
         )
-        self.menu_button.grid(row=0, column=2, sticky="e")
+        self.menu_button.grid(row=0, column=3, sticky="e")
 
     def _build_content(self) -> None:
         body = ttk.Frame(self.root, padding=(12, 4, 12, 8), style="App.TFrame")
@@ -558,6 +585,7 @@ class MainWindow:
         self.root.bind("<Control-comma>", lambda event: (self.show_settings_window(), "break")[1])
         self.root.bind("<Prior>", lambda event: (self.previous_page(), "break")[1])
         self.root.bind("<Next>", lambda event: (self.next_page(), "break")[1])
+        self.root.bind("<ButtonPress>", self._handle_root_pointer_press, add="+")
         self.root.bind("<Escape>", lambda event: (self._close_transient_popups(), "break")[1])
 
     def _close_transient_popups(self) -> None:
@@ -566,6 +594,39 @@ class MainWindow:
             self._search_window.destroy()
         self._search_window = None
         self.search_entry = None
+
+    def _refresh_main_menu_popup_theme(self) -> None:
+        window = self._main_menu_window
+        if window is None or not window.winfo_exists():
+            return
+        palette = self._theme_palette()
+        try:
+            window.configure(background=palette["border"])
+            for child in window.winfo_children():
+                if isinstance(child, tk.Frame):
+                    child.configure(background=palette["border"])
+            window.update_idletasks()
+            x, y = self._popup_anchor_position(
+                root_left=self.root.winfo_rootx(),
+                anchor_left=self.menu_button.winfo_rootx(),
+                anchor_top=self.menu_button.winfo_rooty(),
+                anchor_width=self.menu_button.winfo_width(),
+                anchor_height=self.menu_button.winfo_height(),
+                popup_width=window.winfo_reqwidth(),
+            )
+            window.geometry(f"+{x}+{y}")
+            window.lift(self.root)
+        except tk.TclError:
+            return
+
+    def _handle_root_pointer_press(self, event: tk.Event) -> None:
+        window = self._main_menu_window
+        if window is None or not window.winfo_exists():
+            return
+        widget = event.widget if isinstance(getattr(event, "widget", None), tk.Misc) else None
+        if self._widget_belongs_to(widget, window) or self._widget_belongs_to(widget, self.menu_button):
+            return
+        self.root.after_idle(self._close_main_menu_popup)
 
     def toggle_main_menu_popup(self) -> None:
         if self._main_menu_window is not None and self._main_menu_window.winfo_exists():
@@ -579,6 +640,7 @@ class MainWindow:
 
         palette = self._theme_palette()
         window = tk.Toplevel(self.root)
+        window.withdraw()
         window.overrideredirect(True)
         window.transient(self.root)
         window.configure(background=palette["border"])
@@ -653,13 +715,18 @@ class MainWindow:
         ).grid(row=11, column=0, sticky="w", pady=(6, 0))
 
         window.update_idletasks()
-        root_left = self.root.winfo_rootx() + 8
-        x = self.menu_button.winfo_rootx() + self.menu_button.winfo_width() - window.winfo_reqwidth()
-        y = self.menu_button.winfo_rooty() + self.menu_button.winfo_height() + 6
-        window.geometry(f"+{max(root_left, x)}+{y}")
-        window.bind("<FocusOut>", lambda _event: self._close_main_menu_popup())
-        window.bind("<Escape>", lambda _event: self._close_main_menu_popup())
-        window.focus_force()
+        x, y = self._popup_anchor_position(
+            root_left=self.root.winfo_rootx(),
+            anchor_left=self.menu_button.winfo_rootx(),
+            anchor_top=self.menu_button.winfo_rooty(),
+            anchor_width=self.menu_button.winfo_width(),
+            anchor_height=self.menu_button.winfo_height(),
+            popup_width=window.winfo_reqwidth(),
+        )
+        window.geometry(f"+{x}+{y}")
+        window.deiconify()
+        window.lift(self.root)
+        window.bind("<Escape>", lambda _event: self._close_main_menu_popup(), add="+")
 
     def _close_main_menu_popup(self) -> None:
         if self._main_menu_window is not None and self._main_menu_window.winfo_exists():

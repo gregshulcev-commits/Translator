@@ -134,3 +134,31 @@ def test_responsive_tree_widths_scale_columns() -> None:
     assert widths[1] >= 140
     assert widths[2] >= 160
     assert widths[2] > widths[1] > widths[0]
+
+
+def test_popup_anchor_position_aligns_to_menu_button_right_edge() -> None:
+    x, y = MainWindow._popup_anchor_position(
+        root_left=100,
+        anchor_left=640,
+        anchor_top=48,
+        anchor_width=40,
+        anchor_height=28,
+        popup_width=220,
+    )
+
+    assert x == 460
+    assert y == 82
+
+
+def test_popup_anchor_position_respects_root_margin() -> None:
+    x, y = MainWindow._popup_anchor_position(
+        root_left=100,
+        anchor_left=140,
+        anchor_top=48,
+        anchor_width=30,
+        anchor_height=28,
+        popup_width=220,
+    )
+
+    assert x == 108
+    assert y == 82

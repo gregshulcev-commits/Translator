@@ -18,7 +18,7 @@ def _load_manager_module():
 def test_parse_version_from_project() -> None:
     manager = _load_manager_module()
     project_root = Path(__file__).resolve().parents[1]
-    assert manager.parse_version(project_root) == "10.0.0"
+    assert manager.parse_version(project_root) == "10.0.1"
 
 
 def test_read_v9_project_root_from_launcher() -> None:
