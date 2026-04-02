@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import os
 import queue
+import shutil
+import subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -19,6 +22,7 @@ import urllib.parse
 
 from PIL import ImageTk
 
+from .. import __version__
 from ..config import AppConfig
 from ..models import (
     EN_RU,
@@ -57,6 +61,7 @@ from ..utils.dictionary_installer import (
     install_default_pack,
     install_sqlite_pack,
 )
+from ..utils.desktop_metadata import collect_desktop_metadata
 from ..utils.settings_store import SettingsStore, UiSettings
 from .settings_dialog import SettingsDialog
 
@@ -129,6 +134,14 @@ class MainWindow:
         self.settings_store = settings_store
         self.settings = settings_store.load().normalized()
         self.context_service = ContextTranslationService(self.settings)
+        self.direction_var = tk.StringVar(value=self.settings.direction)
+        self.provider_var = tk.StringVar(value=self.settings.context_provider_id)
+        self.search_var = tk.StringVar(value="")
+        self.search_status_var = tk.StringVar(value="")
+        self.document_zoom_var = tk.StringVar(value=f"{int(1.20 * 100)}%")
+        self.ui_scale_var = tk.StringVar(value=f"{self.settings.ui_scale_percent}%")
+        self._menu_theme_var: tk.StringVar | None = None
+        self.search_entry: ttk.Entry | None = None
 
         self.current_page_index = 0
         self.current_zoom = 1.20
@@ -157,6 +170,8 @@ class MainWindow:
         self._argos_hint_var: tk.StringVar | None = None
         self._argos_runtime_state: ArgosRuntimeState | None = None
         self._settings_dialog: SettingsDialog | None = None
+        self._main_menu_window: tk.Toplevel | None = None
+        self._search_window: tk.Toplevel | None = None
 
         self._build_window()
         self._schedule_context_result_poll()
@@ -166,9 +181,8 @@ class MainWindow:
     # ------------------------------------------------------------------
     def _build_window(self) -> None:
         self.root.title("Офлайн переводчик документов — MVP")
-        self.root.geometry("1420x940")
-        self.root.configure(background="#eef2f7")
         self._configure_styles()
+        self._apply_window_size(self.root, columns=110, rows=32, extra_width=380, extra_height=250)
 
         self._build_menubar()
         self._build_toolbar()
@@ -177,14 +191,78 @@ class MainWindow:
         self._bind_shortcuts()
         self._update_status("Готово. Откройте PDF, TXT или FB2-файл.")
 
+    def _resolved_theme_name(self) -> str:
+        return self.settings.ui_theme if self.settings.ui_theme in {"light", "dark"} else "dark"
+
+    def _theme_palette(self) -> dict[str, str]:
+        if self._resolved_theme_name() == "light":
+            return {
+                "app_bg": "#eef2f7",
+                "toolbar_bg": "#eef2f7",
+                "surface_bg": "#ffffff",
+                "card_bg": "#ffffff",
+                "text": "#0f172a",
+                "meta": "#475569",
+                "muted": "#64748b",
+                "status_bg": "#dbe4ef",
+                "status_fg": "#334155",
+                "canvas_bg": "#738194",
+                "page_shadow": "#d8e0ea",
+                "page_label": "#cbd5e1",
+                "border": "#cbd5e1",
+                "button_bg": "#ffffff",
+                "button_active_bg": "#e2e8f0",
+                "input_bg": "#ffffff",
+                "selected_bg": "#2563eb",
+                "selected_fg": "#ffffff",
+                "menu_surface": "#ffffff",
+                "menu_text": "#0f172a",
+            }
+        return {
+            "app_bg": "#0b1220",
+            "toolbar_bg": "#0f172a",
+            "surface_bg": "#111827",
+            "card_bg": "#111827",
+            "text": "#f8fafc",
+            "meta": "#cbd5e1",
+            "muted": "#94a3b8",
+            "status_bg": "#111827",
+            "status_fg": "#e2e8f0",
+            "canvas_bg": "#050b16",
+            "page_shadow": "#000000",
+            "page_label": "#64748b",
+            "border": "#334155",
+            "button_bg": "#1f2937",
+            "button_active_bg": "#334155",
+            "input_bg": "#0f172a",
+            "selected_bg": "#2563eb",
+            "selected_fg": "#ffffff",
+            "menu_surface": "#111827",
+            "menu_text": "#f8fafc",
+        }
+
+    def theme_color(self, key: str) -> str:
+        return self._theme_palette().get(key, "#ffffff")
+
+    def _effective_ui_scale(self) -> float:
+        return max(0.8, min(1.8, self.settings.ui_scale_percent / 100.0))
+
+    def _effective_ui_font_size(self) -> int:
+        return max(9, min(32, int(round(self.settings.ui_font_size * self._effective_ui_scale()))))
+
     def _configure_styles(self) -> None:
+        palette = self._theme_palette()
         style = ttk.Style(self.root)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
 
-        ui = self.settings.ui_font_size
+        ui = self._effective_ui_font_size()
+        small_ui = max(8, ui - 1)
+        large_ui = ui + 2
+        scale = self._effective_ui_scale()
+
         for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkCaptionFont"):
             try:
                 named_font = tkfont.nametofont(font_name)
@@ -194,22 +272,87 @@ class MainWindow:
 
         default_font = tkfont.nametofont("TkDefaultFont")
         heading_font = tkfont.nametofont("TkHeadingFont")
+        heading_font.configure(size=ui, weight="bold")
         treeview_rowheight = self._treeview_rowheight(default_font.metrics("linespace"))
+        button_padding = (max(8, int(10 * scale)), max(4, int(5 * scale)))
 
-        style.configure("App.TFrame", background="#eef2f7")
-        style.configure("Toolbar.TFrame", background="#eef2f7")
-        style.configure("Surface.TFrame", background="#ffffff")
-        style.configure("InfoCard.TFrame", background="#ffffff", relief="flat")
-        style.configure("CardTitle.TLabel", background="#ffffff", foreground="#0f172a", font=("TkDefaultFont", ui + 1, "bold"))
-        style.configure("Meta.TLabel", background="#ffffff", foreground="#475569", font=("TkDefaultFont", ui - 1))
-        style.configure("BestTranslation.TLabel", background="#ffffff", foreground="#0f172a", font=("TkDefaultFont", ui + 3, "bold"))
-        style.configure("Context.TLabel", background="#ffffff", foreground="#1e293b", font=("TkDefaultFont", ui))
-        style.configure("Muted.TLabel", background="#ffffff", foreground="#64748b", font=("TkDefaultFont", ui - 1))
-        style.configure("Status.TFrame", background="#dbe4ef")
-        style.configure("Status.TLabel", background="#dbe4ef", foreground="#334155", font=("TkDefaultFont", ui - 1))
-        style.configure("Toolbar.TButton", padding=(10, 5))
-        style.configure("Catalog.Treeview", font=default_font, rowheight=treeview_rowheight)
-        style.configure("Catalog.Treeview.Heading", font=heading_font, padding=(8, 4))
+        self.root.configure(background=palette["app_bg"])
+
+        style.configure(".", background=palette["app_bg"], foreground=palette["text"], font=("TkDefaultFont", ui))
+        style.configure("TFrame", background=palette["app_bg"])
+        style.configure("TLabel", background=palette["app_bg"], foreground=palette["text"], font=("TkDefaultFont", ui))
+        style.configure("TButton", background=palette["button_bg"], foreground=palette["text"], padding=button_padding)
+        style.map(
+            "TButton",
+            background=[("active", palette["button_active_bg"]), ("pressed", palette["selected_bg"])],
+            foreground=[("pressed", palette["selected_fg"]), ("disabled", palette["muted"])],
+        )
+        style.configure("TRadiobutton", background=palette["app_bg"], foreground=palette["text"], font=("TkDefaultFont", ui))
+        style.configure("TCheckbutton", background=palette["app_bg"], foreground=palette["text"], font=("TkDefaultFont", ui))
+        style.configure("TEntry", fieldbackground=palette["input_bg"], foreground=palette["text"])
+        style.configure("TCombobox", fieldbackground=palette["input_bg"], foreground=palette["text"])
+        style.configure("TLabelframe", background=palette["app_bg"], foreground=palette["text"])
+        style.configure("TLabelframe.Label", background=palette["app_bg"], foreground=palette["text"], font=("TkDefaultFont", ui, "bold"))
+        style.configure("TNotebook", background=palette["app_bg"], borderwidth=0)
+        style.configure("TNotebook.Tab", background=palette["toolbar_bg"], foreground=palette["text"], padding=(max(10, int(12 * scale)), max(6, int(7 * scale))))
+        style.map("TNotebook.Tab", background=[("selected", palette["surface_bg"]), ("active", palette["button_active_bg"])], foreground=[("selected", palette["text"])])
+        style.configure("App.TFrame", background=palette["app_bg"])
+        style.configure("Toolbar.TFrame", background=palette["toolbar_bg"])
+        style.configure("Surface.TFrame", background=palette["surface_bg"])
+        style.configure("InfoCard.TFrame", background=palette["card_bg"], relief="flat")
+        style.configure("PopupCard.TFrame", background=palette["menu_surface"], relief="flat")
+        style.configure("Page.TLabel", background=palette["toolbar_bg"], foreground=palette["text"], font=("TkDefaultFont", ui + 1, "bold"))
+        style.configure("CardTitle.TLabel", background=palette["card_bg"], foreground=palette["text"], font=("TkDefaultFont", ui + 1, "bold"))
+        style.configure("Meta.TLabel", background=palette["card_bg"], foreground=palette["meta"], font=("TkDefaultFont", small_ui))
+        style.configure("BestTranslation.TLabel", background=palette["card_bg"], foreground=palette["text"], font=("TkDefaultFont", large_ui, "bold"))
+        style.configure("Context.TLabel", background=palette["card_bg"], foreground=palette["text"], font=("TkDefaultFont", ui))
+        style.configure("Muted.TLabel", background=palette["card_bg"], foreground=palette["muted"], font=("TkDefaultFont", small_ui))
+        style.configure("Status.TFrame", background=palette["status_bg"])
+        style.configure("Status.TLabel", background=palette["status_bg"], foreground=palette["status_fg"], font=("TkDefaultFont", small_ui))
+        style.configure("Toolbar.TButton", padding=button_padding)
+        style.configure("MenuAction.TButton", anchor="w", padding=(max(10, int(12 * scale)), max(4, int(6 * scale))))
+        style.configure("Popup.TLabel", background=palette["menu_surface"], foreground=palette["menu_text"], font=("TkDefaultFont", ui))
+        style.configure("PopupHeader.TLabel", background=palette["menu_surface"], foreground=palette["menu_text"], font=("TkDefaultFont", ui, "bold"))
+        style.configure("PopupMuted.TLabel", background=palette["menu_surface"], foreground=palette["muted"], font=("TkDefaultFont", small_ui))
+        style.configure("Popup.TRadiobutton", background=palette["menu_surface"], foreground=palette["menu_text"], font=("TkDefaultFont", ui))
+        style.configure("Catalog.Treeview", background=palette["surface_bg"], fieldbackground=palette["surface_bg"], foreground=palette["text"], font=default_font, rowheight=treeview_rowheight)
+        style.map("Catalog.Treeview", background=[("selected", palette["selected_bg"])], foreground=[("selected", palette["selected_fg"])])
+        style.configure("Catalog.Treeview.Heading", background=palette["toolbar_bg"], foreground=palette["text"], font=heading_font, padding=(8, 4))
+
+        if hasattr(self, "canvas"):
+            self.canvas.configure(background=palette["canvas_bg"])
+        if getattr(self, "_settings_dialog", None) is not None and self._settings_dialog.window.winfo_exists():
+            self._settings_dialog.refresh_theme()
+        self._close_main_menu_popup()
+
+    def _apply_window_size(
+        self,
+        window: tk.Misc,
+        *,
+        columns: int,
+        rows: int,
+        extra_width: int,
+        extra_height: int,
+        min_columns: int = 80,
+        min_rows: int = 24,
+    ) -> None:
+        try:
+            text_font = tkfont.nametofont("TkTextFont")
+            char_width = max(7, text_font.measure("0"))
+            line_height = max(14, text_font.metrics("linespace"))
+        except tk.TclError:
+            char_width = 8
+            line_height = 18
+        width = columns * char_width + extra_width
+        height = rows * line_height + extra_height
+        min_width = min_columns * char_width + max(180, extra_width // 2)
+        min_height = min_rows * line_height + max(120, extra_height // 2)
+        try:
+            window.geometry(f"{width}x{height}")
+            if hasattr(window, "minsize"):
+                window.minsize(min_width, min_height)
+        except tk.TclError:
+            return
 
     @staticmethod
     def _treeview_rowheight(linespace: int) -> int:
@@ -312,57 +455,6 @@ class MainWindow:
         container.after_idle(on_configure)
 
     def _build_menubar(self) -> None:
-        self.menu_bar = tk.Menu(self.root)
-        self.root.configure(menu=self.menu_bar)
-
-        file_menu = tk.Menu(self.menu_bar)
-        file_menu.add_command(label="Открыть документ…", command=self.open_document_dialog, accelerator="Ctrl+O")
-        file_menu.add_separator()
-        file_menu.add_command(label="Выход", command=self.root.destroy)
-        self.menu_bar.add_cascade(label="Файл", menu=file_menu)
-
-        self.dictionaries_menu = tk.Menu(self.menu_bar)
-        self.dictionaries_menu.add_command(label="Каталог словарей…", command=self.show_dictionary_catalog)
-        self.dictionaries_menu.add_command(
-            label="Установить FreeDict для текущего направления",
-            command=self.install_default_dictionary_pack,
-        )
-        self.dictionaries_menu.add_separator()
-        self.dictionaries_menu.add_command(label="Подключить SQLite-словарь…", command=self.install_sqlite_dictionary_pack)
-        self.dictionaries_menu.add_command(label="Импортировать CSV-словарь…", command=self.import_csv_dictionary_pack)
-        self.dictionaries_menu.add_command(label="Импортировать FreeDict TEI…", command=self.import_freedict_dictionary_pack)
-        self.menu_bar.add_cascade(label="Словари", menu=self.dictionaries_menu)
-
-        self.translate_menu = tk.Menu(self.menu_bar)
-        direction_menu = tk.Menu(self.translate_menu)
-        self.direction_var = tk.StringVar(value=self.settings.direction)
-        direction_menu.add_radiobutton(label="EN → RU", value=EN_RU, variable=self.direction_var, command=self.on_direction_menu_change)
-        direction_menu.add_radiobutton(label="RU → EN", value=RU_EN, variable=self.direction_var, command=self.on_direction_menu_change)
-        self.translate_menu.add_cascade(label="Направление", menu=direction_menu)
-
-        provider_menu = tk.Menu(self.translate_menu)
-        self.provider_var = tk.StringVar(value=self.settings.context_provider_id)
-        for choice in self.context_service.provider_choices():
-            provider_menu.add_radiobutton(
-                label=choice.display_name,
-                value=choice.provider_id,
-                variable=self.provider_var,
-                command=self.on_provider_menu_change,
-            )
-        self.translate_menu.add_cascade(label="Контекстный перевод", menu=provider_menu)
-        self.translate_menu.add_command(label="Настройки перевода…", command=self.show_provider_settings_dialog)
-        self.translate_menu.add_command(label="Офлайн-модели Argos…", command=self.show_argos_model_manager)
-        self.translate_menu.add_command(label="Как установить Argos…", command=self.show_argos_installation_help)
-        self.menu_bar.add_cascade(label="Перевод", menu=self.translate_menu)
-
-        settings_menu = tk.Menu(self.menu_bar)
-        settings_menu.add_command(label="Открыть настройки…", command=self.show_settings_window)
-        settings_menu.add_command(label="Словари", command=lambda: self.show_settings_window("dictionaries"))
-        settings_menu.add_command(label="LibreTranslate", command=lambda: self.show_settings_window("libretranslate"))
-        settings_menu.add_command(label="Yandex Cloud", command=lambda: self.show_settings_window("yandex"))
-        settings_menu.add_command(label="Argos", command=lambda: self.show_settings_window("argos"))
-        self.menu_bar.add_cascade(label="Настройки", menu=settings_menu)
-
         self.dictionary_context_menu = tk.Menu(self.root, tearoff=False)
         self.dictionary_context_menu.add_command(label="Каталог словарей…", command=self.show_dictionary_catalog)
         self.dictionary_context_menu.add_separator()
@@ -371,39 +463,29 @@ class MainWindow:
         self.dictionary_context_menu.add_command(label="Импортировать FreeDict TEI…", command=self.import_freedict_dictionary_pack)
 
     def _build_toolbar(self) -> None:
-        toolbar = ttk.Frame(self.root, padding=(12, 10, 12, 4), style="Toolbar.TFrame")
+        toolbar = ttk.Frame(self.root, padding=(12, 10, 12, 8), style="Toolbar.TFrame")
         toolbar.pack(side=tk.TOP, fill=tk.X)
-        toolbar.columnconfigure(11, weight=1)
+        toolbar.columnconfigure(1, weight=1)
+        toolbar.columnconfigure(2, weight=1)
+        self.toolbar = toolbar
 
-        ttk.Button(toolbar, text="Открыть", command=self.open_document_dialog, style="Toolbar.TButton").grid(row=0, column=0, padx=(0, 6), sticky="w")
-        ttk.Button(toolbar, text="◀", command=self.previous_page, width=3).grid(row=0, column=1, sticky="w")
-        ttk.Button(toolbar, text="▶", command=self.next_page, width=3).grid(row=0, column=2, padx=(4, 10), sticky="w")
+        ttk.Button(toolbar, text="Открыть", command=self.open_document_dialog, style="Toolbar.TButton").grid(
+            row=0, column=0, sticky="w"
+        )
 
-        self.page_label = ttk.Label(toolbar, text="Стр. 0 / 0")
-        self.page_label.grid(row=0, column=3, padx=(0, 12), sticky="w")
+        center = ttk.Frame(toolbar, style="Toolbar.TFrame")
+        center.grid(row=0, column=1)
+        self.page_label = ttk.Label(center, text="Стр. 0 / 0", style="Page.TLabel")
+        self.page_label.pack(anchor="center")
 
-        ttk.Button(toolbar, text="-", command=lambda: self.change_zoom(-0.1), width=3).grid(row=0, column=4, sticky="w")
-        ttk.Button(toolbar, text="+", command=lambda: self.change_zoom(0.1), width=3).grid(row=0, column=5, padx=(4, 10), sticky="w")
-
-        self.zoom_label = ttk.Label(toolbar, text="120%")
-        self.zoom_label.grid(row=0, column=6, padx=(0, 12), sticky="w")
-
-        self.direction_button = ttk.Button(toolbar, text=self._direction_display(self.settings.direction), command=self.toggle_direction)
-        self.direction_button.grid(row=0, column=7, padx=(0, 12), sticky="w")
-
-        ttk.Button(toolbar, text="Настройки", command=self.show_settings_window).grid(row=0, column=8, padx=(0, 8), sticky="w")
-        ttk.Button(toolbar, text="Словари", command=lambda: self.show_settings_window("dictionaries")).grid(row=0, column=9, padx=(0, 12), sticky="w")
-
-        ttk.Label(toolbar, text="Поиск:").grid(row=0, column=10, sticky="w")
-        self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var)
-        self.search_entry.grid(row=0, column=11, padx=(4, 4), sticky="ew")
-        ttk.Button(toolbar, text="Найти", command=self.execute_search).grid(row=0, column=12, sticky="w")
-        ttk.Button(toolbar, text="Пред.", command=lambda: self.navigate_search(-1)).grid(row=0, column=13, padx=(4, 0), sticky="w")
-        ttk.Button(toolbar, text="След.", command=lambda: self.navigate_search(1)).grid(row=0, column=14, padx=(4, 0), sticky="w")
-
-        self.search_status_label = ttk.Label(toolbar, text="")
-        self.search_status_label.grid(row=0, column=15, padx=(10, 0), sticky="w")
+        self.menu_button = ttk.Button(
+            toolbar,
+            text="☰",
+            width=3,
+            command=self.toggle_main_menu_popup,
+            style="Toolbar.TButton",
+        )
+        self.menu_button.grid(row=0, column=2, sticky="e")
 
     def _build_content(self) -> None:
         body = ttk.Frame(self.root, padding=(12, 4, 12, 8), style="App.TFrame")
@@ -415,7 +497,7 @@ class MainWindow:
         viewer_frame = ttk.Frame(viewer_card, style="Surface.TFrame")
         viewer_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(viewer_frame, background="#738194", highlightthickness=0, bd=0)
+        self.canvas = tk.Canvas(viewer_frame, background=self.theme_color("canvas_bg"), highlightthickness=0, bd=0)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.yscroll = ttk.Scrollbar(viewer_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         self.yscroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -469,10 +551,283 @@ class MainWindow:
         ttk.Label(status_frame, textvariable=self.status_var, style="Status.TLabel").pack(anchor="w")
 
     def _bind_shortcuts(self) -> None:
-        self.root.bind("<Control-o>", lambda event: self.open_document_dialog())
-        self.root.bind("<Control-f>", lambda event: self.search_entry.focus_set())
-        self.root.bind("<Prior>", lambda event: self.previous_page())
-        self.root.bind("<Next>", lambda event: self.next_page())
+        self.root.bind("<Control-o>", lambda event: (self.open_document_dialog(), "break")[1])
+        self.root.bind("<Control-f>", lambda event: (self.show_search_popup(), "break")[1])
+        self.root.bind("<Control-s>", lambda event: (self.save_current_document_copy(), "break")[1])
+        self.root.bind("<Control-p>", lambda event: (self.print_current_document(), "break")[1])
+        self.root.bind("<Control-comma>", lambda event: (self.show_settings_window(), "break")[1])
+        self.root.bind("<Prior>", lambda event: (self.previous_page(), "break")[1])
+        self.root.bind("<Next>", lambda event: (self.next_page(), "break")[1])
+        self.root.bind("<Escape>", lambda event: (self._close_transient_popups(), "break")[1])
+
+    def _close_transient_popups(self) -> None:
+        self._close_main_menu_popup()
+        if self._search_window is not None and self._search_window.winfo_exists():
+            self._search_window.destroy()
+        self._search_window = None
+        self.search_entry = None
+
+    def toggle_main_menu_popup(self) -> None:
+        if self._main_menu_window is not None and self._main_menu_window.winfo_exists():
+            self._close_main_menu_popup()
+            return
+        self._show_main_menu_popup()
+
+    def _show_main_menu_popup(self) -> None:
+        self._close_main_menu_popup()
+        self.root.update_idletasks()
+
+        palette = self._theme_palette()
+        window = tk.Toplevel(self.root)
+        window.overrideredirect(True)
+        window.transient(self.root)
+        window.configure(background=palette["border"])
+        self._main_menu_window = window
+
+        outer = tk.Frame(window, background=palette["border"], padx=1, pady=1)
+        outer.pack(fill=tk.BOTH, expand=True)
+        frame = ttk.Frame(outer, padding=12, style="PopupCard.TFrame")
+        frame.pack(fill=tk.BOTH, expand=True)
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text="Быстрые действия", style="PopupHeader.TLabel").grid(row=0, column=0, sticky="w")
+
+        theme_row = ttk.Frame(frame, style="PopupCard.TFrame")
+        theme_row.grid(row=1, column=0, sticky="ew", pady=(10, 8))
+        ttk.Label(theme_row, text="Тема:", style="Popup.TLabel").pack(side=tk.LEFT)
+        self._menu_theme_var = tk.StringVar(value=self._resolved_theme_name())
+        ttk.Radiobutton(
+            theme_row,
+            text="Светлая",
+            value="light",
+            variable=self._menu_theme_var,
+            style="Popup.TRadiobutton",
+            command=lambda: self.set_ui_theme("light"),
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Radiobutton(
+            theme_row,
+            text="Тёмная",
+            value="dark",
+            variable=self._menu_theme_var,
+            style="Popup.TRadiobutton",
+            command=lambda: self.set_ui_theme("dark"),
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        scale_row = ttk.Frame(frame, style="PopupCard.TFrame")
+        scale_row.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(scale_row, text="Масштаб интерфейса:", style="Popup.TLabel").pack(side=tk.LEFT)
+        ttk.Button(scale_row, text="−", width=3, command=lambda: self.change_ui_scale_percent(-10)).pack(side=tk.RIGHT)
+        ttk.Label(scale_row, textvariable=self.ui_scale_var, style="Popup.TLabel").pack(side=tk.RIGHT, padx=10)
+        ttk.Button(scale_row, text="+", width=3, command=lambda: self.change_ui_scale_percent(10)).pack(side=tk.RIGHT)
+
+        zoom_row = ttk.Frame(frame, style="PopupCard.TFrame")
+        zoom_row.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(zoom_row, text="Масштаб документа:", style="Popup.TLabel").pack(side=tk.LEFT)
+        ttk.Button(zoom_row, text="−", width=3, command=lambda: self.change_zoom(-0.1)).pack(side=tk.RIGHT)
+        ttk.Label(zoom_row, textvariable=self.document_zoom_var, style="Popup.TLabel").pack(side=tk.RIGHT, padx=10)
+        ttk.Button(zoom_row, text="+", width=3, command=lambda: self.change_zoom(0.1)).pack(side=tk.RIGHT)
+
+        ttk.Separator(frame).grid(row=4, column=0, sticky="ew", pady=(0, 10))
+
+        action_specs = [
+            ("Сохранить копию…", self.save_current_document_copy),
+            ("Печать…", self.print_current_document),
+            (f"Направление перевода: {self._direction_display(self.settings.direction)}", self.toggle_direction),
+            ("Поиск…", self.show_search_popup),
+            ("Параметры…", self.show_settings_window),
+            ("О приложении", self.show_about_dialog),
+        ]
+        for row_index, (label, callback) in enumerate(action_specs, start=5):
+            ttk.Button(
+                frame,
+                text=label,
+                style="MenuAction.TButton",
+                command=lambda cb=callback: (self._close_main_menu_popup(), cb()),
+            ).grid(row=row_index, column=0, sticky="ew", pady=(0, 6))
+
+        ttk.Label(
+            frame,
+            text="Ctrl+F — поиск · Ctrl+, — настройки",
+            style="PopupMuted.TLabel",
+            justify=tk.LEFT,
+        ).grid(row=11, column=0, sticky="w", pady=(6, 0))
+
+        window.update_idletasks()
+        root_left = self.root.winfo_rootx() + 8
+        x = self.menu_button.winfo_rootx() + self.menu_button.winfo_width() - window.winfo_reqwidth()
+        y = self.menu_button.winfo_rooty() + self.menu_button.winfo_height() + 6
+        window.geometry(f"+{max(root_left, x)}+{y}")
+        window.bind("<FocusOut>", lambda _event: self._close_main_menu_popup())
+        window.bind("<Escape>", lambda _event: self._close_main_menu_popup())
+        window.focus_force()
+
+    def _close_main_menu_popup(self) -> None:
+        if self._main_menu_window is not None and self._main_menu_window.winfo_exists():
+            self._main_menu_window.destroy()
+        self._main_menu_window = None
+
+    def show_search_popup(self) -> None:
+        if self.document_service.current_path is None:
+            messagebox.showinfo("Поиск", "Сначала откройте документ.")
+            return
+        if self._search_window is not None and self._search_window.winfo_exists():
+            self._search_window.deiconify()
+            self._search_window.lift()
+            if self.search_entry is not None:
+                self.search_entry.focus_set()
+                self.search_entry.selection_range(0, tk.END)
+            return
+
+        self._close_main_menu_popup()
+        window = tk.Toplevel(self.root)
+        window.title("Поиск")
+        window.transient(self.root)
+        window.configure(background=self.theme_color("app_bg"))
+        self._apply_window_size(window, columns=60, rows=10, extra_width=160, extra_height=120)
+        self._search_window = window
+        window.protocol("WM_DELETE_WINDOW", self._close_transient_popups)
+
+        frame = ttk.Frame(window, padding=14, style="App.TFrame")
+        frame.pack(fill=tk.BOTH, expand=True)
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text="Поиск по документу", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="Введите слово или фразу и нажмите «Поиск».", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 10))
+        self.search_entry = ttk.Entry(frame, textvariable=self.search_var)
+        self.search_entry.grid(row=2, column=0, sticky="ew")
+        self.search_entry.bind("<Return>", lambda _event: self.execute_search())
+
+        buttons = ttk.Frame(frame, style="App.TFrame")
+        buttons.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        ttk.Button(buttons, text="Поиск", command=self.execute_search).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Предыдущее", command=lambda: self.navigate_search(-1)).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Следующее", command=lambda: self.navigate_search(1)).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Закрыть", command=self._close_transient_popups).pack(side=tk.RIGHT)
+
+        ttk.Label(frame, textvariable=self.search_status_var, style="Context.TLabel", justify=tk.LEFT).grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        self.search_entry.focus_set()
+        self.search_entry.selection_range(0, tk.END)
+
+    def _set_search_status(self, text: str) -> None:
+        self.search_status_var.set(text)
+
+    def save_current_document_copy(self) -> None:
+        current_path = self.document_service.current_path
+        if current_path is None:
+            messagebox.showinfo("Сохранить копию", "Сначала откройте документ.")
+            return
+        destination = filedialog.asksaveasfilename(
+            title="Сохранить копию документа",
+            initialfile=current_path.name,
+            defaultextension=current_path.suffix or None,
+            filetypes=self._document_filetypes(),
+        )
+        if not destination:
+            return
+        destination_path = Path(destination)
+        try:
+            shutil.copy2(current_path, destination_path)
+        except OSError as exc:
+            messagebox.showerror("Сохранить копию", str(exc))
+            return
+        self._update_status(f"Сохранена копия документа: {destination_path.name}")
+
+    def print_current_document(self) -> None:
+        current_path = self.document_service.current_path
+        if current_path is None:
+            messagebox.showinfo("Печать", "Сначала откройте документ.")
+            return
+        try:
+            if shutil.which("lp"):
+                subprocess.run(["lp", str(current_path)], check=True)
+                self._update_status(f"Документ отправлен на печать: {current_path.name}")
+                return
+            if shutil.which("lpr"):
+                subprocess.run(["lpr", str(current_path)], check=True)
+                self._update_status(f"Документ отправлен на печать: {current_path.name}")
+                return
+            if shutil.which("xdg-open"):
+                subprocess.Popen(["xdg-open", str(current_path)], start_new_session=True)
+                self._update_status("Документ открыт системным приложением. Используйте его диалог печати.")
+                return
+        except (OSError, subprocess.CalledProcessError) as exc:
+            messagebox.showerror("Печать", str(exc))
+            return
+        messagebox.showinfo("Печать", "В системе не найдено средств печати (lp/lpr). Документ можно сохранить копией и распечатать вручную.")
+
+    def show_about_dialog(self) -> None:
+        metadata = collect_desktop_metadata(self.config.project_root)
+        commit_value = metadata.commit_short or metadata.commit or "—"
+        lines = [
+            "PDF Word Translator MVP",
+            "",
+            f"Версия: {metadata.version or __version__}",
+            f"Commit: {commit_value}",
+            f"Ветка: {metadata.branch or '—'}",
+            f"Последнее обновление: {metadata.last_updated or '—'}",
+            f"Источник обновлений: {metadata.repo_url or 'не настроен'}",
+            f"Каталог установки: {metadata.install_home or '—'}",
+            f"Тип сборки: {metadata.source_type or '—'}",
+            "",
+            f"Тема интерфейса: {'Тёмная' if self._resolved_theme_name() == 'dark' else 'Светлая'}",
+            f"Масштаб интерфейса: {self.settings.ui_scale_percent}%",
+            f"Размер шрифта UI: {self.settings.ui_font_size} pt",
+            f"Масштаб документа: {int(self.current_zoom * 100)}%",
+        ]
+        self._show_readonly_text_dialog("О приложении", "\n".join(lines), geometry="760x520")
+
+    def set_ui_theme(self, theme_name: str) -> None:
+        theme_name = str(theme_name or "").strip().lower()
+        if theme_name not in {"light", "dark"}:
+            theme_name = "dark"
+        if theme_name == self.settings.ui_theme:
+            return
+        self.settings.ui_theme = theme_name
+        label = "Тёмная" if theme_name == "dark" else "Светлая"
+        self._apply_ui_preferences(status_message=f"Тема интерфейса: {label}")
+
+    def change_ui_scale_percent(self, delta: int) -> None:
+        updated = UiSettings(**{**self.settings.__dict__, "ui_scale_percent": self.settings.ui_scale_percent + int(delta)}).normalized()
+        if updated.ui_scale_percent == self.settings.ui_scale_percent:
+            return
+        self.settings = updated
+        self._apply_ui_preferences(status_message=f"Масштаб интерфейса: {self.settings.ui_scale_percent}%")
+
+    def _apply_ui_preferences(self, *, save: bool = True, status_message: str | None = None) -> None:
+        self.settings = self.settings.normalized()
+        if save:
+            self.settings_store.save(self.settings)
+        self.context_service.update_settings(self.settings)
+        self.direction_var.set(self.settings.direction)
+        self.provider_var.set(self.settings.context_provider_id)
+        self.ui_scale_var.set(f"{self.settings.ui_scale_percent}%")
+        self.document_zoom_var.set(f"{int(self.current_zoom * 100)}%")
+        if self._menu_theme_var is not None:
+            self._menu_theme_var.set(self._resolved_theme_name())
+        self._configure_styles()
+        self._apply_window_size(self.root, columns=110, rows=32, extra_width=380, extra_height=250)
+        self._refresh_canvas_theme_items()
+        if self._search_window is not None and self._search_window.winfo_exists():
+            self._search_window.configure(background=self.theme_color("app_bg"))
+            self._apply_window_size(self._search_window, columns=60, rows=10, extra_width=160, extra_height=120)
+        if self._catalog_window is not None and self._catalog_window.winfo_exists():
+            self._catalog_window.configure(background=self.theme_color("app_bg"))
+        if self._argos_window is not None and self._argos_window.winfo_exists():
+            self._argos_window.configure(background=self.theme_color("app_bg"))
+        if status_message:
+            self._update_status(status_message)
+
+    def _refresh_canvas_theme_items(self) -> None:
+        if not hasattr(self, "canvas"):
+            return
+        self.canvas.configure(background=self.theme_color("canvas_bg"))
+        for layout in self.page_layouts.values():
+            if layout.shadow_item is not None:
+                self.canvas.itemconfigure(layout.shadow_item, fill=self.theme_color("page_shadow"), outline="")
+            if layout.background_item is not None:
+                self.canvas.itemconfigure(layout.background_item, fill="#ffffff", outline="")
+            if layout.label_item is not None:
+                self.canvas.itemconfigure(layout.label_item, fill=self.theme_color("page_label"))
 
     def _schedule_context_result_poll(self) -> None:
         if self._context_poll_scheduled:
@@ -671,7 +1026,7 @@ class MainWindow:
             self.current_search_hits = []
             self.current_search_index = -1
             self.current_view_model = None
-            self.search_status_label.configure(text="")
+            self._set_search_status("")
             self.document_service.clear_cache()
             self._clear_panel()
             self.render_document(focus_page=0)
@@ -705,17 +1060,16 @@ class MainWindow:
             left = self.PAGE_MARGIN
             top = current_top
             layout = CanvasPageLayout(page_index=page_index, left=left, top=top, width=width, height=height)
-            layout.shadow_item = self.canvas.create_rectangle(left - 3, top - 3, left + width + 3, top + height + 3, fill="#d8e0ea", outline="")
+            layout.shadow_item = self.canvas.create_rectangle(left - 3, top - 3, left + width + 3, top + height + 3, fill=self.theme_color("page_shadow"), outline="")
             layout.background_item = self.canvas.create_rectangle(left, top, left + width, top + height, fill="#ffffff", outline="")
-            layout.label_item = self.canvas.create_text(left + 10, top - 14, text=f"Стр. {page_index + 1}", fill="#cbd5e1", anchor="w")
+            layout.label_item = self.canvas.create_text(left + 10, top - 14, text=f"Стр. {page_index + 1}", fill=self.theme_color("page_label"), anchor="w")
             self.page_layouts[page_index] = layout
             current_top += height + self.PAGE_GAP
             max_width = max(max_width, width)
 
         self.canvas.configure(scrollregion=(0, 0, max_width + self.PAGE_MARGIN * 2, current_top + self.PAGE_MARGIN))
-        self.zoom_label.configure(text=f"{int(self.current_zoom * 100)}%")
+        self.document_zoom_var.set(f"{int(self.current_zoom * 100)}%")
         self.direction_var.set(self.settings.direction)
-        self.direction_button.configure(text=self._direction_display(self.settings.direction))
         self._last_rendered_zoom = self.current_zoom
 
         if anchor_doc_point is not None and anchor_widget is not None:
@@ -1006,21 +1360,21 @@ class MainWindow:
         self.current_search_hits = self.document_service.session.search(query)
         if not self.current_search_hits:
             self.current_search_index = -1
-            self.search_status_label.configure(text="Ничего не найдено")
+            self._set_search_status("Ничего не найдено")
             self._update_status("Поиск: ничего не найдено")
             if self.search_rect_id is not None:
                 self.canvas.delete(self.search_rect_id)
                 self.search_rect_id = None
             return
         self.current_search_index = 0
-        self.search_status_label.configure(text=f"1 / {len(self.current_search_hits)}")
+        self._set_search_status(f"1 / {len(self.current_search_hits)}")
         self._show_search_hit(self.current_search_hits[0])
 
     def navigate_search(self, direction: int) -> None:
         if not self.current_search_hits:
             return
         self.current_search_index = (self.current_search_index + direction) % len(self.current_search_hits)
-        self.search_status_label.configure(text=f"{self.current_search_index + 1} / {len(self.current_search_hits)}")
+        self._set_search_status(f"{self.current_search_index + 1} / {len(self.current_search_hits)}")
         self._show_search_hit(self.current_search_hits[self.current_search_index])
 
     def _show_search_hit(self, hit: SearchHit) -> None:
@@ -1119,10 +1473,9 @@ class MainWindow:
 
         window = tk.Toplevel(self.root)
         window.title("Каталог словарей")
-        window.geometry("980x560")
-        window.minsize(760, 420)
+        self._apply_window_size(window, columns=88, rows=24, extra_width=220, extra_height=180)
         window.transient(self.root)
-        window.configure(background="#eef2f7")
+        window.configure(background=self.theme_color("app_bg"))
         window.rowconfigure(0, weight=1)
         window.columnconfigure(0, weight=1)
         self._catalog_window = window
@@ -1271,10 +1624,9 @@ class MainWindow:
 
         window = tk.Toplevel(self.root)
         window.title("Офлайн-модели Argos")
-        window.geometry("1040x620")
-        window.minsize(820, 480)
+        self._apply_window_size(window, columns=92, rows=26, extra_width=240, extra_height=200)
         window.transient(self.root)
-        window.configure(background="#eef2f7")
+        window.configure(background=self.theme_color("app_bg"))
         window.rowconfigure(0, weight=1)
         window.columnconfigure(0, weight=1)
         self._argos_window = window
@@ -1517,14 +1869,12 @@ class MainWindow:
     def _set_direction(self, direction: TranslationDirection) -> None:
         direction = direction if direction in (EN_RU, RU_EN) else EN_RU
         if direction == self.settings.direction:
-            self.direction_button.configure(text=self._direction_display(direction))
             return
         self.settings.direction = direction
         self.settings = self.settings.normalized()
         self.settings_store.save(self.settings)
         self.context_service.update_settings(self.settings)
         self.direction_var.set(self.settings.direction)
-        self.direction_button.configure(text=self._direction_display(self.settings.direction))
         self._refresh_dictionary_footer()
         self._cancel_pending_context_translation()
         self._update_status(f"Направление перевода: {self._direction_display(self.settings.direction)}")
@@ -1590,10 +1940,9 @@ class MainWindow:
     def _show_readonly_text_dialog(self, title: str, message: str, *, geometry: str = "860x620") -> None:
         window = tk.Toplevel(self.root)
         window.title(title)
-        window.geometry(geometry)
-        window.minsize(580, 360)
+        self._apply_window_size(window, columns=72, rows=22, extra_width=180, extra_height=180)
         window.transient(self.root)
-        window.configure(background="#eef2f7")
+        window.configure(background=self.theme_color("app_bg"))
 
         frame = ttk.Frame(window, padding=12, style="App.TFrame")
         frame.pack(fill=tk.BOTH, expand=True)
@@ -1608,6 +1957,13 @@ class MainWindow:
             pady=8,
         )
         text_widget.pack(fill=tk.BOTH, expand=True)
+        text_widget.configure(
+            background=self.theme_color("surface_bg"),
+            foreground=self.theme_color("text"),
+            insertbackground=self.theme_color("text"),
+            selectbackground=self.theme_color("selected_bg"),
+            selectforeground=self.theme_color("selected_fg"),
+        )
         text_widget.insert("1.0", message)
         text_widget.configure(state=tk.DISABLED)
 
@@ -1639,10 +1995,10 @@ class MainWindow:
             "Рекомендуемый путь через GUI:\n"
             "1. Установите optional dependency:\n"
             f"   {install_command}\n\n"
-            "2. В приложении откройте «Перевод → Офлайн-модели Argos…».\n"
-            "3. Нажмите «Обновить список из сети», затем «Установить выбранную модель»\n"
-            "   или импортируйте уже скачанный .argosmodel файл.\n"
-            "4. Выберите провайдер «Argos (офлайн)».\n\n"
+            "2. В приложении откройте «☰ → Параметры → Argos».\n"
+            "   Исторический путь в старом интерфейсе: «Перевод → Офлайн-модели Argos…».\n"
+            "3. Нажмите «Установить поддержку Argos» и дождитесь завершения сценария.\n"
+            "4. После установки провайдер Argos будет выбран автоматически.\n\n"
             "CLI-альтернатива для текущего направления:\n"
             f"{model_command}\n\n"
             "Проверка доступных пакетов:\n"
@@ -1670,22 +2026,11 @@ class MainWindow:
         if updated.ui_font_size == self.settings.ui_font_size:
             return
         self.settings = updated
-        self.settings_store.save(self.settings)
-        self.context_service.update_settings(self.settings)
-        self._configure_styles()
-        self.direction_button.configure(text=self._direction_display(self.settings.direction))
-        self._update_status(f"Размер интерфейса: {self.settings.ui_font_size} pt")
+        self._apply_ui_preferences(status_message=f"Размер интерфейса: {self.settings.ui_font_size} pt")
 
     def reset_ui_font_size(self) -> None:
-        defaults = UiSettings(direction=self.settings.direction, context_provider_id=self.settings.context_provider_id)
-        defaults.libretranslate_url = self.settings.libretranslate_url
-        defaults.libretranslate_api_key = self.settings.libretranslate_api_key
-        defaults.yandex_folder_id = self.settings.yandex_folder_id
-        defaults.yandex_api_key = self.settings.yandex_api_key
-        defaults.yandex_iam_token = self.settings.yandex_iam_token
-        self.settings = defaults.normalized()
-        self.settings_store.save(self.settings)
-        self.context_service.update_settings(self.settings)
-        self._configure_styles()
-        self.direction_button.configure(text=self._direction_display(self.settings.direction))
-        self._update_status(f"Размер интерфейса сброшен: {self.settings.ui_font_size} pt")
+        defaults = UiSettings(**{**self.settings.__dict__, "ui_font_size": UiSettings.ui_font_size}).normalized()
+        if defaults.ui_font_size == self.settings.ui_font_size:
+            return
+        self.settings = defaults
+        self._apply_ui_preferences(status_message=f"Размер интерфейса сброшен: {self.settings.ui_font_size} pt")

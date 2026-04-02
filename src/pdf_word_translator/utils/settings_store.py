@@ -9,11 +9,16 @@ import os
 from ..models import EN_RU, SUPPORTED_DIRECTIONS, TranslationDirection, direction_source_lang, direction_target_lang
 
 
+SUPPORTED_UI_THEMES = {"light", "dark"}
+
+
 @dataclass
 class UiSettings:
     """User-facing settings stored on disk."""
 
     ui_font_size: int = 11
+    ui_scale_percent: int = 100
+    ui_theme: str = "dark"
     direction: TranslationDirection = EN_RU
     context_provider_id: str = "disabled"
     libretranslate_url: str = "http://127.0.0.1:5000"
@@ -63,6 +68,16 @@ class UiSettings:
         except (TypeError, ValueError):
             ui_font_size = UiSettings.ui_font_size
 
+        try:
+            ui_scale_percent = int(self.ui_scale_percent)
+        except (TypeError, ValueError):
+            ui_scale_percent = UiSettings.ui_scale_percent
+
+        theme_raw = self.ui_theme if isinstance(self.ui_theme, str) else str(self.ui_theme or "dark")
+        ui_theme = theme_raw.strip().lower() or "dark"
+        if ui_theme not in SUPPORTED_UI_THEMES:
+            ui_theme = "dark"
+
         def _clean_text(value: object, default: str = "") -> str:
             if value is None:
                 return default
@@ -72,6 +87,8 @@ class UiSettings:
 
         return UiSettings(
             ui_font_size=max(9, min(24, ui_font_size)),
+            ui_scale_percent=max(80, min(180, ui_scale_percent)),
+            ui_theme=ui_theme,
             direction=direction,
             context_provider_id=provider,
             libretranslate_url=_clean_text(self.libretranslate_url, "http://127.0.0.1:5000"),
